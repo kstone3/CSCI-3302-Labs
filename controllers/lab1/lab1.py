@@ -2,10 +2,12 @@ from turtle import left, right
 from controller import Robot
 
 class EPUCKController:
+    
     def __init__(self):
+    
         self.robot = Robot()
         self.time_step = int(self.robot.getBasicTimeStep())
-
+        
         # Initialize motors
         self.left_motor = self.robot.getDevice('left wheel motor')
         self.right_motor = self.robot.getDevice('right wheel motor')
@@ -20,6 +22,9 @@ class EPUCKController:
             'front_left': self.robot.getDevice('ps7'),
             'front_right': self.robot.getDevice('ps0'),
             'right': self.robot.getDevice('ps2'),
+            'back_left' : self.robot.getDevice('ps4'),
+            'back_right' : self.robot.getDevice('ps3'),
+            
         }
         for sensor in self.distance_sensors.values():
             sensor.enable(self.time_step)
@@ -35,45 +40,45 @@ class EPUCKController:
 
         # State machine variables
         self.state = "FOLLOW_LEFT_WALL"
-        self.wall_distance_threshold = 3
-        self.wall_distance_max = 7  # Maximum acceptable distance from the wall
-        self.obstacle_threshold = 5
-        self.light_threshold = 400
-
+        self.wall_distance_threshold = 100
+        self.wall_distance_max = 200  # Maxwimum acceptable distance from the wall
+        self.obstacle_threshold = 300
+        self.light_threshold = 1
     def calibrate_distance(self, raw_value):
         """
         Convert raw sensor value to an approximate distance in meters.
         The calibration depends on the sensor and environment setup.
         """
         # Example calibration (adjust as necessary based on sensor testing)
-        if raw_value == 0:
-            return float('inf')  # No detection
-        return 1 / (raw_value * 0.002)  # Example formula, test and refine this
+        # if raw_value == 0:
+            # return float('inf')  # No detection
+        # return 1 / (raw_value * 0.002)  # Example formula, test and refine this
 
 
     def read_distance_sensor(self, name):
         raw_value = self.distance_sensors[name].getValue()
-        return self.calibrate_distance(raw_value)
+        return (raw_value)
 
 
     def read_light_sensors(self):
         """
         Return True if light is detected from left, front, and right light sensors.
         """
-        left_light_detected = all(sensor.getValue() > self.light_threshold for sensor in self.light_sensors['left'])
-        right_light_detected = all(sensor.getValue() > self.light_threshold for sensor in self.light_sensors['right'])
-
+        left_light_detected = all(sensor.getValue() < self.light_threshold for sensor in self.light_sensors['left'])
+        right_light_detected = all(sensor.getValue() < self.light_threshold for sensor in self.light_sensors['right'])
+        print(f"left_LightSensor: {left_light_detected:.2f}, right_LightSensor: {right_light_detected:.2f}")
         return left_light_detected and right_light_detected
 
     def set_motor_speeds(self, left_speed, right_speed):
         self.left_motor.setVelocity(left_speed)
         self.right_motor.setVelocity(right_speed)
 
-    def follow_wall(self):
+    def follow_left_wall(self):
         print('Following wall on the left side')
 
         # Always use the left distance sensor to follow the wall
         wall_distance = self.read_distance_sensor('left')
+        right_wall_distance = self.read_distance_sensor('right')
         front_left_distance = self.read_distance_sensor('front_left')
         front_right_distance = self.read_distance_sensor('front_right')
 
@@ -81,21 +86,32 @@ class EPUCKController:
         print(f"Wall Distance (left): {wall_distance:.2f}, Front Left: {front_left_distance:.2f}, Front Right: {front_right_distance:.2f}")
 
         # Check for obstacle in front or at an angle
-        if (front_left_distance < self.obstacle_threshold or
-            front_right_distance < self.obstacle_threshold):
+        if (front_left_distance > self.obstacle_threshold or
+            front_right_distance > self.obstacle_threshold):
             print("Obstacle detected, transitioning to AVOID_OBSTACLE.")
             self.state = "AVOID_OBSTACLE"
             return
 
         #If the robot is too far from the wall, adjust to move closer
-        if wall_distance > self.wall_distance_max:
+        if wall_distance < 64:
             print("Too far from the wall, adjusting path to move closer.")
-            self.set_motor_speeds(2.0, -2.0)  # Turn left slightly
-            self.robot.step(self.time_step)
+            turn_duration = 0.2
+            start_time = self.robot.getTime()
+            while self.robot.getTime() - start_time < turn_duration:
+                self.set_motor_speeds(-1.8, 1.8)  # Turn left slightly
+                self.robot.step(self.time_step)
             return
-
-        left_speed = 3.0
-        right_speed = 3.0
+        if wall_distance > 1200:
+            print("Too far from the wall, adjusting path to move closer.")
+            turn_duration = 0.02
+            start_time = self.robot.getTime()
+            while self.robot.getTime() - start_time < turn_duration:
+                self.set_motor_speeds(1.8, -1.8)  # Turn left slightly
+                self.robot.step(self.time_step)
+            return
+        else:
+            left_speed = 3.0
+            right_speed = 3.0
 
         # Debugging motor speeds
         print(f"Motor Speeds: Left={left_speed:.2f}, Right={right_speed:.2f}")
@@ -104,55 +120,147 @@ class EPUCKController:
         self.set_motor_speeds(left_speed, right_speed)
 
     def avoid_obstacle(self):
+        turn_duration = 1.025
         print("Avoiding obstacle.")
         # Determine turn direction based on sensor readings
         front_left_distance = self.read_distance_sensor('front_left')
         front_right_distance = self.read_distance_sensor('front_right')
+        left_wall_distance = self.read_distance_sensor('left')
+        right_wall_distance = self.read_distance_sensor('right')
 
         # Default turn direction is right unless front_right detects a closer obstacle
-        if front_right_distance < front_left_distance:
+        if right_wall_distance > left_wall_distance:
             print("Turning left to avoid obstacle.")
-            while self.read_distance_sensor('front_left') < self.obstacle_threshold:
+             # while self.read_distance_sensor('front_left') < self.obstacle_threshold :
+            start_time = self.robot.getTime()
+            while self.robot.getTime() - start_time < turn_duration:
                 self.set_motor_speeds(-2.0, 2.0)  # Turn left
                 self.robot.step(self.time_step)
         else:
             print("Turning right to avoid obstacle.")
-            while self.read_distance_sensor('front_right') < self.obstacle_threshold:
-                self.set_motor_speeds(2.0, -2.0)  # Turn right
-                self.robot.step(self.time_step)
-
+            while self.read_distance_sensor('front_right') > self.obstacle_threshold:
+                start_time = self.robot.getTime()
+                while self.robot.getTime() - start_time < turn_duration:
+                    self.set_motor_speeds(2.0, -2.0)  # Turn right
+                    self.robot.step(self.time_step)
+    
         # Move forward a bit to re-align
-        print("Re-aligning with the wall.")
-        self.set_motor_speeds(3.0, 3.0)
-        for _ in range(10):  # Move forward for a short duration
-            self.robot.step(self.time_step)
-
+        # print("Re-aligning with the wall.")
+        # self.set_motor_speeds(3.0, 3.0)
+        # for _ in range(10):  # Move forward for a short duration
+            # self.robot.step(self.time_step)
         self.state = "FOLLOW_LEFT_WALL"
-
     def turn_around(self):
         # Perform a 180-degree turn
-        turn_time = 2000  # Adjust timing based on simulation
+        turn_time = 2.0  # Adjust timing based on simulation
         start_time = self.robot.getTime()
 
         self.set_motor_speeds(-2.0, 2.0)
-        while self.robot.getTime() - start_time < turn_time / 1000.0:
+        while self.robot.getTime() - start_time < turn_time :
             self.robot.step(self.time_step)
+            
+        self.state = "FOLLOW_RIGHT_WALL"
+        
+    def follow_right_wall(self):
+        print('Following wall on the right side')
 
-        self.state = "FOLLOW_LEFT_WALL"
+        # Always use the left distance sensor to follow the wall
+        wall_distance = self.read_distance_sensor('right')
+        left_wall_distance = self.read_distance_sensor('left')
+        front_left_distance = self.read_distance_sensor('front_left')
+        front_right_distance = self.read_distance_sensor('front_right')
 
+        # Debugging sensor values
+        print(f"Wall Distance (right): {wall_distance:.2f}, Front Left: {front_left_distance:.2f}, Front Right: {front_right_distance:.2f}")
+
+        # Check for obstacle in front or at an angle
+        if (front_right_distance > self.obstacle_threshold or
+            front_left_distance > self.obstacle_threshold):
+            print("Obstacle detected, transitioning to AVOID_OBSTACLE.")
+            self.state = "AVOID_RIGHT_OBSTACLE"
+            return
+
+        #If the robot is too far from the wall, adjust to move closer
+        if wall_distance < 63:
+            print("Too far from the wall, adjusting path to move closer.")
+            turn_duration = 0.2
+            start_time = self.robot.getTime()
+            while self.robot.getTime() - start_time < turn_duration:
+                self.set_motor_speeds(1.5, -1.5)  # Turn left slightly
+                self.robot.step(self.time_step)
+            return
+        else:
+            left_speed = 3.0
+            right_speed = 3.0
+
+        # Debugging motor speeds
+        print(f"Motor Speeds: Left={left_speed:.2f}, Right={right_speed:.2f}")
+
+        # Set motor speeds
+        self.set_motor_speeds(left_speed, right_speed)
+        self.state = "FOLLOW_RIGHT_WALL"
+    
+    
+    def avoid_right_obstacle(self):
+        turn_duration = 1.3
+        print("Avoiding obstacle.")
+        # Determine turn direction based on sensor readings
+        front_left_distance = self.read_distance_sensor('front_left')
+        front_right_distance = self.read_distance_sensor('front_right')
+        left_wall_distance = self.read_distance_sensor('left')
+        right_wall_distance = self.read_distance_sensor('right')
+
+        # Default turn direction is right unless front_right detects a closer obstacle
+        if right_wall_distance > left_wall_distance:
+            print("Turning left to avoid obstacle.")
+             # while self.read_distance_sensor('front_left') < self.obstacle_threshold :
+            start_time = self.robot.getTime()
+            while self.robot.getTime() - start_time < turn_duration:
+                self.set_motor_speeds(-2.0, 2.0)  # Turn left
+                self.robot.step(self.time_step)
+        else:
+            print("Turning right to avoid obstacle.")
+            while self.read_distance_sensor('front_right') > self.obstacle_threshold:
+                start_time = self.robot.getTime()
+                while self.robot.getTime() - start_time < turn_duration:
+                    self.set_motor_speeds(2.0, -2.0)  # Turn right
+                    self.robot.step(self.time_step)
+    
+        # Move forward a bit to re-align
+        # print("Re-aligning with the wall.")
+        # self.set_motor_speeds(3.0, 3.0)
+        # for _ in range(10):  # Move forward for a short duration
+            # self.robot.step(self.time_step)
+        self.state = "FOLLOW_RIGHT_WALL"
+        
+        
     def stop(self):
         self.set_motor_speeds(0.0, 0.0)
 
     def run(self):
         while self.robot.step(self.time_step) != -1:
             if self.state == "FOLLOW_LEFT_WALL":
-                self.follow_wall()
+                self.follow_left_wall()
                 if self.read_light_sensors():
                     print("Light detected, transitioning to TURN_AROUND.")
                     self.state = "TURN_AROUND"
-
+            elif self.state == "FOLLOW_RIGHT_WALL":
+                self.follow_right_wall()
+                if self.read_light_sensors():
+                    print("Light detected, transitioning to TURN_AROUND.")
+                    self.state = "TURN_AROUND"
+                    turn_time = 2.0  # Adjust timing based on simulation
+                    start_time = self.robot.getTime()
+                    self.set_motor_speeds(-2.0, 2.0)
+                    while self.robot.getTime() - start_time < turn_time :
+                        self.robot.step(self.time_step)
+                    self.left_motor.setVelocity(0.0)
+                    self.right_motor.setVelocity(0.0)
+                    break
             elif self.state == "AVOID_OBSTACLE":
                 self.avoid_obstacle()
+            elif self.state == "AVOID_RIGHT_OBSTACLE":
+                self.avoid_right_obstacle()
 
             elif self.state == "TURN_AROUND":
                 print("Turning around.")
