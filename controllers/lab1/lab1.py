@@ -213,7 +213,6 @@ class EPUCKController:
                 self.follow_right_wall()
                 if self.read_light_sensors():
                     print("Light detected, transitioning to TURN_AROUND.")
-                    self.state = "TURN_AROUND"
                     turn_time = 2.0  # Adjust timing based on simulation
                     start_time = self.robot.getTime()
                     self.set_motor_speeds(-2.0, 2.0)
@@ -229,10 +228,6 @@ class EPUCKController:
             elif self.state == "TURN_AROUND":
                 print("Turning around.")
                 self.turn_around()
-            elif self.state == "STOP":
-                print("Stopping the robot.")
-                self.set_motor_speeds(0.0, 0.0)
-                break
 
 if __name__ == "__main__":
     controller = EPUCKController()
