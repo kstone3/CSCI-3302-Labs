@@ -39,6 +39,8 @@ rightMotor.setPosition(float('inf'))
 leftMotor.setVelocity(0.0)
 rightMotor.setVelocity(0.0)
 
+robot_state='speed_measurement'
+
 # Initialize and Enable the Ground Sensors
 gsr = [0, 0, 0]
 ground_sensors = [robot.getDevice('gs0'), robot.getDevice('gs1'), robot.getDevice('gs2')]
@@ -52,6 +54,7 @@ vL = 0 # TODO: Initialize variable for left speed
 vR = 0 # TODO: Initialize variable for right speed
 
 # Main Control Loop:
+og_start_time=robot.getTime()
 while robot.step(SIM_TIMESTEP) != -1:
 
     # Read ground sensor values
@@ -59,8 +62,21 @@ while robot.step(SIM_TIMESTEP) != -1:
         gsr[i] = gs.getValue()
 
     # print(gsr) # TODO: Uncomment to see the ground sensor values!
-
-        
+    if robot_state=="speed_measurement":
+        start_time=robot.getTime()
+        while start_time-robot.getTime()<3:
+            leftMotor.setVelocity(MAX_SPEED)
+            rightMotor.setVelocity(MAX_SPEED)
+            if start_line: #implement code to check when robot reaches start line
+                leftMotor.setVelocity(0)
+                rightMotor.setVelocity(0)
+                robot_state='none'
+                time_elapsed=og_start_time-robot.getTime()
+                distance_traveled = EPUCK_AXLE_DIAMETER/2 * MAX_SPEED * time_elapsed
+                speed = distance_traveled / time_elapsed
+                EPUCK_MAX_WHEEL_SPEED=speed
+                print("Time Elapsed", time_elapsed)
+    
     # Hints: 
     #
     # 1) Setting vL=MAX_SPEED and vR=-MAX_SPEED lets the robot turn
