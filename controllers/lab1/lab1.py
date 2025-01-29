@@ -78,6 +78,7 @@ class EPUCKController:
 
         # Always use the left distance sensor to follow the wall
         wall_distance = self.read_distance_sensor('left')
+        left_wall_distance = self.read_distance_sensor('left')
         right_wall_distance = self.read_distance_sensor('right')
         front_left_distance = self.read_distance_sensor('front_left')
         front_right_distance = self.read_distance_sensor('front_right')
@@ -91,22 +92,27 @@ class EPUCKController:
             print("Obstacle detected, transitioning to AVOID_OBSTACLE.")
             self.state = "AVOID_OBSTACLE"
             return
+        
+        if left_wall_distance  < 64:
+            print("Running off to nothing, transitioning to AVOID_NOTHING.")
+            self.state = "AVOID_NOTHING"
+            return
 
         #If the robot is too far from the wall, adjust to move closer
-        if wall_distance < 64:
+        if wall_distance < 100 and wall_distance > 75: #64 before
             print("Too far from the wall, adjusting path to move closer.")
-            turn_duration = 0.2
+            turn_duration = 0.035
             start_time = self.robot.getTime()
             while self.robot.getTime() - start_time < turn_duration:
                 self.set_motor_speeds(-1.8, 1.8)  # Turn left slightly
                 self.robot.step(self.time_step)
             return
-        if wall_distance > 1200:
-            print("Too far from the wall, adjusting path to move closer.")
-            turn_duration = 0.02
+        if wall_distance > 1200: #1200 before
+            print("Too close to the wall, adjusting path to move closer.")
+            turn_duration = 0.035
             start_time = self.robot.getTime()
             while self.robot.getTime() - start_time < turn_duration:
-                self.set_motor_speeds(1.8, -1.8)  # Turn left slightly
+                self.set_motor_speeds(1.8, -1.8)  # Turn right slightly
                 self.robot.step(self.time_step)
             return
         else:
@@ -119,6 +125,25 @@ class EPUCKController:
         # Set motor speeds
         self.set_motor_speeds(left_speed, right_speed)
 
+    def avoid_nothing(self):
+        turn_duration = 1.1 
+        start_time_buffer = 1.125
+        end_time_buffer = 1.75
+        print("Avoiding running off to nothing.")
+        start_buffer_time = self.robot.getTime()
+        while self.robot.getTime() - start_buffer_time < start_time_buffer:
+            self.set_motor_speeds(2.0, 2.0)
+            self.robot.step(self.time_step)
+        start_time = self.robot.getTime()
+        while self.robot.getTime() - start_time < turn_duration:
+            self.set_motor_speeds(-2.0, 2.0)  # Turn left
+            self.robot.step(self.time_step)
+        end_buffer_time = self.robot.getTime()
+        while self.robot.getTime() - end_buffer_time < end_time_buffer:
+            self.set_motor_speeds(2.0, 2.0)
+            self.robot.step(self.time_step)
+        self.state = "FOLLOW_LEFT_WALL"
+        
     def avoid_obstacle(self):
         turn_duration = 1.025
         print("Avoiding obstacle.")
@@ -127,11 +152,11 @@ class EPUCKController:
         front_right_distance = self.read_distance_sensor('front_right')
         left_wall_distance = self.read_distance_sensor('left')
         right_wall_distance = self.read_distance_sensor('right')
-
+        
         # Default turn direction is right unless front_right detects a closer obstacle
         if right_wall_distance > left_wall_distance:
             print("Turning left to avoid obstacle.")
-             # while self.read_distance_sensor('front_left') < self.obstacle_threshold :
+            # while self.read_distance_sensor('front_left') < self.obstacle_threshold :
             start_time = self.robot.getTime()
             while self.robot.getTime() - start_time < turn_duration:
                 self.set_motor_speeds(-2.0, 2.0)  # Turn left
@@ -148,7 +173,7 @@ class EPUCKController:
         # print("Re-aligning with the wall.")
         # self.set_motor_speeds(3.0, 3.0)
         # for _ in range(10):  # Move forward for a short duration
-            # self.robot.step(self.time_step)
+        # self.robot.step(self.time_step)
         self.state = "FOLLOW_LEFT_WALL"
     def turn_around(self):
         # Perform a 180-degree turn
@@ -257,6 +282,8 @@ class EPUCKController:
                     self.left_motor.setVelocity(0.0)
                     self.right_motor.setVelocity(0.0)
                     break
+            elif self.state == "AVOID_NOTHING":
+                self.avoid_nothing()
             elif self.state == "AVOID_OBSTACLE":
                 self.avoid_obstacle()
             elif self.state == "AVOID_RIGHT_OBSTACLE":
