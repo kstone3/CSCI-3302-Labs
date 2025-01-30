@@ -43,7 +43,7 @@ robot_state='speed_measurement'
 
 # Initialize and Enable the Ground Sensors
 gsr = [0, 0, 0]
-ground_sensors = [robot.getDevice('gs0'), robot.getDevice('gs1'), robot.getDevice('gs2')]
+ground_sensors = [robot.getDevice('gs0'), robot.getDevice('gs1'), robot.getDevice('gs2')] #front left, front center, front right
 for gs in ground_sensors:
     gs.enable(SIM_TIMESTEP)
 
@@ -58,24 +58,28 @@ og_start_time=robot.getTime()
 while robot.step(SIM_TIMESTEP) != -1:
 
     # Read ground sensor values
-    for i, gs in enumerate(ground_sensors):
-        gsr[i] = gs.getValue()
+    for i, gs in enumerate(ground_sensors): gsr[i] = gs.getValue()
 
     # print(gsr) # TODO: Uncomment to see the ground sensor values!
     if robot_state=="speed_measurement":
         start_time=robot.getTime()
-        while start_time-robot.getTime()<3:
+        while -1<start_time-robot.getTime()<=0:
             leftMotor.setVelocity(MAX_SPEED)
             rightMotor.setVelocity(MAX_SPEED)
-            if start_line: #implement code to check when robot reaches start line
-                leftMotor.setVelocity(0)
-                rightMotor.setVelocity(0)
-                robot_state='none'
-                time_elapsed=og_start_time-robot.getTime()
-                distance_traveled = EPUCK_AXLE_DIAMETER/2 * MAX_SPEED * time_elapsed
-                speed = distance_traveled / time_elapsed
-                EPUCK_MAX_WHEEL_SPEED=speed
-                print("Time Elapsed", time_elapsed)
+            robot.step(SIM_TIMESTEP)
+        for i, gs in enumerate(ground_sensors): gsr[i] = gs.getValue()
+        if all(value < 400 for value in gsr): #implement code to check when robot reaches start line
+            leftMotor.setVelocity(0)
+            rightMotor.setVelocity(0)
+            robot_state='line_follower'
+            time_elapsed=og_start_time-robot.getTime()
+            distance_traveled = EPUCK_AXLE_DIAMETER/2 * MAX_SPEED * time_elapsed
+            speed = distance_traveled / time_elapsed
+            EPUCK_MAX_WHEEL_SPEED=speed
+            print("Time Elapsed", time_elapsed)
+            print("Speed: ",speed)
+    if robot_state=='none':
+        break
     
     # Hints: 
     #
@@ -92,7 +96,20 @@ while robot.step(SIM_TIMESTEP) != -1:
     # and test the robustness of your approach.
     #
 
-    # TODO: Insert Line Following Code Here  
+    # TODO: Insert Line Following Code Here 
+    if robot_state == "line_follower":
+        if gsr[1] < 800:  # Center sensor detects the line
+            vL = MAX_SPEED
+            vR = MAX_SPEED
+        elif gsr[0] < 800:  # Left sensor detects the line
+            vL = -MAX_SPEED
+            vR = MAX_SPEED
+        elif gsr[2] < 800:  # Right sensor detects the line
+            vL = MAX_SPEED
+            vR = -MAX_SPEED
+        else:  # None of the sensors detect the line
+            vL = -MAX_SPEED
+            vR = MAX_SPEED
     
     # TODO: Call update_odometry Here
     
