@@ -67,19 +67,17 @@ while robot.step(SIM_TIMESTEP) != -1:
             leftMotor.setVelocity(MAX_SPEED)
             rightMotor.setVelocity(MAX_SPEED)
             robot.step(SIM_TIMESTEP)
-        for i, gs in enumerate(ground_sensors): gsr[i] = gs.getValue()
-        if all(value < 400 for value in gsr): #implement code to check when robot reaches start line
+        if all(gs.getValue() < 400 for gs in ground_sensors):
             leftMotor.setVelocity(0)
             rightMotor.setVelocity(0)
             robot_state='line_follower'
-            time_elapsed=og_start_time-robot.getTime()
+            time_elapsed=robot.getTime()-og_start_time
             distance_traveled = EPUCK_AXLE_DIAMETER/2 * MAX_SPEED * time_elapsed
             speed = distance_traveled / time_elapsed
             EPUCK_MAX_WHEEL_SPEED=speed
             print("Time Elapsed", time_elapsed)
             print("Speed: ",speed)
-    if robot_state=='none':
-        break
+    if robot_state=='none': break
     
     # Hints: 
     #
@@ -112,7 +110,16 @@ while robot.step(SIM_TIMESTEP) != -1:
             vR = MAX_SPEED
     
     # TODO: Call update_odometry Here
-    
+    #THIS DOESN"T QUITE WORK
+    vL_mps = (vL / MAX_SPEED) * EPUCK_MAX_WHEEL_SPEED
+    vR_mps = (vR / MAX_SPEED) * EPUCK_MAX_WHEEL_SPEED
+    d = (vL_mps + vR_mps) / 2.0 * SIM_TIMESTEP/1000
+    d_theta = ((vR_mps - vL_mps) / EPUCK_AXLE_DIAMETER) * SIM_TIMESTEP/1000
+    pose_x += d * math.cos(pose_theta)
+    pose_y += d * math.sin(pose_theta)
+    pose_theta += d_theta
+    pose_theta = (pose_theta + math.pi) % (2 * math.pi) - math.pi
+
     # Hints:
     #
     # 1) Divide vL/vR by MAX_SPEED to normalize, then multiply with
@@ -130,7 +137,10 @@ while robot.step(SIM_TIMESTEP) != -1:
 
     
     # TODO: Insert Loop Closure Code Here
-    
+    if all(gs.getValue() < 400 for gs in ground_sensors):
+        pose_x=0
+        pose_y=0
+        pose_theta=0
     # Hints:
     #
     # 1) Set a flag whenever you encounter the line
