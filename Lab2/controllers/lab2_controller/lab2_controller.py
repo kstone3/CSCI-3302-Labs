@@ -55,6 +55,7 @@ vR = 0 # TODO: Initialize variable for right speed
 
 # Main Control Loop:
 og_start_time=robot.getTime()
+black_line_start_time = None  
 while robot.step(SIM_TIMESTEP) != -1:
 
     # Read ground sensor values
@@ -137,10 +138,17 @@ while robot.step(SIM_TIMESTEP) != -1:
 
     
     # TODO: Insert Loop Closure Code Here
-    if all(gs.getValue() < 400 for gs in ground_sensors):
-        pose_x=0
-        pose_y=0
-        pose_theta=0
+    all_black = all(gs.getValue() < 400 for gs in ground_sensors)
+    if all_black:
+        if black_line_start_time is None:
+            black_line_start_time = robot.getTime()  # Start timer
+        elif robot.getTime() - black_line_start_time > 0.1:  # 0.1s threshold
+            pose_x = 0
+            pose_y = 0
+            pose_theta = 0
+            print("Pose reset after detecting black for 0.1 seconds!")
+    else:
+        black_line_start_time = None
     # Hints:
     #
     # 1) Set a flag whenever you encounter the line
