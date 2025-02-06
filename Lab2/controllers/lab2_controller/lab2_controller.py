@@ -98,24 +98,26 @@ while robot.step(SIM_TIMESTEP) != -1:
     # TODO: Insert Line Following Code Here 
     if robot_state == "line_follower":
         if gsr[1] < 800:  # Center sensor detects the line
-            vL = MAX_SPEED
-            vR = MAX_SPEED
+            vL = MAX_SPEED / 4 
+            vR = MAX_SPEED / 4 
         elif gsr[0] < 800:  # Left sensor detects the line
-            vL = MAX_SPEED*-0.15
-            vR = MAX_SPEED*0.2
+            vL = -MAX_SPEED / 4
+            vR = MAX_SPEED / 4
         elif gsr[2] < 800:  # Right sensor detects the line
-            vL = MAX_SPEED*0.2
-            vR = MAX_SPEED*-0.15
+            vL = MAX_SPEED / 4
+            vR = -MAX_SPEED / 4
         else:  # None of the sensors detect the line
-            vL = MAX_SPEED*-0.15
-            vR = MAX_SPEED*0.2
+            vL = -MAX_SPEED / 4
+            vR = MAX_SPEED / 4
     
     # TODO: Call update_odometry Here
-    #THIS DOESN"T QUITE WORK
-    vL_mps = (vL / MAX_SPEED) * EPUCK_MAX_WHEEL_SPEED* SIM_TIMESTEP/1000*0.5
-    vR_mps = (vR / MAX_SPEED) * EPUCK_MAX_WHEEL_SPEED * SIM_TIMESTEP/1000*0.5
-    d = (vL_mps + vR_mps) / 2.0 
-    d_theta = ((vR_mps - vL_mps) / EPUCK_AXLE_DIAMETER )
+    #Need to fix EPUCK_MAX_WHEEL_SPEED value
+    EPUCK_MAX_WHEEL_SPEED = .13
+
+    vL_mps = (vL / (MAX_SPEED / 4)) * (EPUCK_MAX_WHEEL_SPEED / 4)
+    vR_mps = (vR / (MAX_SPEED / 4)) * (EPUCK_MAX_WHEEL_SPEED / 4)
+    d = (vL_mps + vR_mps) / 2.0 * SIM_TIMESTEP/1000 
+    d_theta = ((vR_mps - vL_mps) / EPUCK_AXLE_DIAMETER ) * SIM_TIMESTEP/1000 
     pose_x += d * math.cos(pose_theta)
     pose_y += d * math.sin(pose_theta)
     pose_theta += d_theta
