@@ -112,12 +112,12 @@ while robot.step(SIM_TIMESTEP) != -1:
     
     # TODO: Call update_odometry Here
     #THIS DOESN"T QUITE WORK
-    vL_mps = (vL / MAX_SPEED) * EPUCK_MAX_WHEEL_SPEED
-    vR_mps = (vR / MAX_SPEED) * EPUCK_MAX_WHEEL_SPEED
-    d = (vL_mps + vR_mps) / 2.0 * SIM_TIMESTEP/1000
-    d_theta = ((vR_mps - vL_mps) / EPUCK_AXLE_DIAMETER / 4) * SIM_TIMESTEP/1000
+    vL_mps = (vL / MAX_SPEED) * EPUCK_MAX_WHEEL_SPEED* SIM_TIMESTEP/1000*0.5
+    vR_mps = (vR / MAX_SPEED) * EPUCK_MAX_WHEEL_SPEED * SIM_TIMESTEP/1000*0.5
+    d = (vL_mps + vR_mps) / 2.0 
+    d_theta = ((vR_mps - vL_mps) / EPUCK_AXLE_DIAMETER )
     pose_x += d * math.cos(pose_theta)
-    pose_y -= d * math.sin(pose_theta)
+    pose_y += d * math.sin(pose_theta)
     pose_theta += d_theta
     #pose_theta = (pose_theta + math.pi) % (2 * math.pi) - math.pi
 
