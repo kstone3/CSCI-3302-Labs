@@ -101,14 +101,14 @@ while robot.step(SIM_TIMESTEP) != -1:
             vL = MAX_SPEED
             vR = MAX_SPEED
         elif gsr[0] < 800:  # Left sensor detects the line
-            vL = -MAX_SPEED
-            vR = MAX_SPEED
+            vL = MAX_SPEED*-0.15
+            vR = MAX_SPEED*0.2
         elif gsr[2] < 800:  # Right sensor detects the line
-            vL = MAX_SPEED
-            vR = -MAX_SPEED
+            vL = MAX_SPEED*0.2
+            vR = MAX_SPEED*-0.15
         else:  # None of the sensors detect the line
-            vL = -MAX_SPEED
-            vR = MAX_SPEED
+            vL = MAX_SPEED*-0.15
+            vR = MAX_SPEED*0.2
     
     # TODO: Call update_odometry Here
     #THIS DOESN"T QUITE WORK
