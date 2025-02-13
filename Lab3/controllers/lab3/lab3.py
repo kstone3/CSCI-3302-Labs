@@ -89,8 +89,21 @@ while robot.step(SIM_TIMESTEP) != -1:
     
     x_goal, y_goal=waypoints[index]
     rho=euclidean_distances(np.array([waypoints[index]]), np.array([[pose_x, pose_y]]))[0][0]
-    alpha=np.arctan((y_goal - pose_y) / (x_goal - pose_x)) - pose_theta
-    eta=np.arctan2(y_goal - pose_y, x_goal - pose_x) - pose_theta
+    # alpha=np.arctan((y_goal - pose_y) / (x_goal - pose_x)) - pose_theta
+    # alpha = (alpha + np.pi) % (2 * np.pi) - np.pi
+    # eta=np.arctan2(y_goal - pose_y, x_goal - pose_x) - pose_theta
+    # eta = (eta + np.pi) % (2 * np.pi) - np.pi
+    theta_g = np.arctan2(y_goal - pose_y, x_goal - pose_x)  # Angle to the goal
+    alpha = theta_g - pose_theta  # Difference from robot's heading
+    alpha = (alpha + np.pi) % (2 * np.pi) - np.pi  # Normalize to [-pi, pi]
+    if index < len(waypoints) - 1:
+        x_next, y_next = waypoints[index + 1]  # Next waypoint
+        theta_goal_orientation = np.arctan2(y_next - y_goal, x_next - x_goal)  # Direction to next waypoint
+    else:
+        x_next, y_next = waypoints[0]  # Next waypoint
+        theta_goal_orientation = np.arctan2(y_next - y_goal, x_next - x_goal)  # Direction to next waypoint
+    eta = theta_goal_orientation - pose_theta  # Difference from final desired heading
+    eta = (eta + np.pi) % (2 * np.pi) - np.pi 
     print("Rho: ", rho)
     print("Alpha: ", alpha)
     print("Eta: ", eta)
@@ -112,8 +125,8 @@ while robot.step(SIM_TIMESTEP) != -1:
     
     if robot_state == "turn_drive_turn":
         #Turn
-        if abs(alpha)>0.1 and rho>0.005:
-            if alpha>0:
+        if abs(alpha)>np.pi and rho>0.05:
+            if alpha>np.pi:
                 vL=MAX_SPEED/4
                 vR=-MAX_SPEED/4
             else:
@@ -124,7 +137,7 @@ while robot.step(SIM_TIMESTEP) != -1:
             vL=MAX_SPEED
             vR=MAX_SPEED
         #Turn
-        elif abs(eta)>0.1:
+        elif abs(eta)>np.pi:
             if eta>0:
                 vL=-MAX_SPEED/4
                 vR=MAX_SPEED/4
