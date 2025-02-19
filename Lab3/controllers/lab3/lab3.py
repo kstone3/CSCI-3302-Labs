@@ -24,7 +24,7 @@ EPUCK_AXLE_DIAMETER=0.053 # ePuck's wheels are 53mm apart.
 EPUCK_MAX_WHEEL_SPEED=0.1257 # ePuck wheel speed in m/s
 MAX_SPEED=6.28
 
-robot_state="turn_drive_turn"
+robot_state="proportional_controller" # Initial state of the robot
 # get the time step of the current world.
 SIM_TIMESTEP=int(robot.getBasicTimeStep())
 
@@ -88,22 +88,22 @@ while robot.step(SIM_TIMESTEP) != -1:
     pose_theta=np.arctan2(compass.getValues()[0], compass.getValues()[1])
     
     x_goal, y_goal=waypoints[index]
-    rho=euclidean_distances(np.array([waypoints[index]]), np.array([[pose_x, pose_y]]))[0][0]
+    rho=np.sqrt((x_goal - pose_x) ** 2 + (y_goal - pose_y) ** 2)  # Distance to the goal
     # alpha=np.arctan((y_goal - pose_y) / (x_goal - pose_x)) - pose_theta
     # alpha = (alpha + np.pi) % (2 * np.pi) - np.pi
     # eta=np.arctan2(y_goal - pose_y, x_goal - pose_x) - pose_theta
     # eta = (eta + np.pi) % (2 * np.pi) - np.pi
     theta_g = np.arctan2(y_goal - pose_y, x_goal - pose_x)  # Angle to the goal
     alpha = theta_g - pose_theta  # Difference from robot's heading
-    alpha = (alpha + np.pi) % (2 * np.pi) - np.pi  # Normalize to [-pi, pi]
+    if alpha<-np.pi:
+        alpha += 2*np.pi
     if index < len(waypoints) - 1:
-        x_next, y_next = waypoints[index + 1]  # Next waypoint
-        theta_goal_orientation = np.arctan2(y_next - y_goal, x_next - x_goal)  # Direction to next waypoint
+        x_next, y_next = waypoints[index + 1]
     else:
-        x_next, y_next = waypoints[0]  # Next waypoint
-        theta_goal_orientation = np.arctan2(y_next - y_goal, x_next - x_goal)  # Direction to next waypoint
-    eta = theta_goal_orientation - pose_theta  # Difference from final desired heading
-    eta = (eta + np.pi) % (2 * np.pi) - np.pi 
+        x_next, y_next = waypoints[0]
+    theta_goal_orientation = np.arctan2(y_next - y_goal, x_next - x_goal)
+    eta = theta_goal_orientation - pose_theta
+    eta = (eta + np.pi) % (2 * np.pi) - np.pi
     print("Rho: ", rho)
     print("Alpha: ", alpha)
     print("Eta: ", eta)
@@ -123,35 +123,53 @@ while robot.step(SIM_TIMESTEP) != -1:
             vL=-MAX_SPEED / 4
             vR=MAX_SPEED / 4
     
-    if robot_state == "turn_drive_turn":
-        #Turn
-        if abs(alpha)>np.pi and rho>0.05:
-            if alpha>np.pi:
-                vL=MAX_SPEED/4
-                vR=-MAX_SPEED/4
+    if robot_state == "turn_to_goal":
+        # Rotate in place until the bearing error (α) is within tolerance.
+        if abs(alpha) > 0.1:
+            if alpha > 0:
+                vL = -MAX_SPEED / 4
+                vR = MAX_SPEED / 4
             else:
-                vL=-MAX_SPEED/4
-                vR=MAX_SPEED/4
-        # Drive forward
-        elif rho>0.05:
-            vL=MAX_SPEED
-            vR=MAX_SPEED
-        #Turn
-        elif abs(eta)>np.pi:
-            if eta>0:
-                vL=-MAX_SPEED/4
-                vR=MAX_SPEED/4
-            else:
-                vL=MAX_SPEED/4
-                vR=-MAX_SPEED/4
+                vL = MAX_SPEED / 4
+                vR = -MAX_SPEED / 4
         else:
-            vL=0
-            vR=0
-            index+=1
-            if index==len(waypoints):
-                index=0
+            # Bearing error is small; proceed to drive forward.
+            robot_state = "drive"
+            vL = 0
+            vR = 0
+
+    elif robot_state == "drive":
+        # Drive forward while reducing position error (ρ).
+        if rho > 0.05:
+            vL =  MAX_SPEED / 2
+            vR =  MAX_SPEED / 2
+        else:
+            # Arrived near the waypoint; transition to final heading adjustment.
+            robot_state = "turn_to_heading"
+            vL = 0
+            vR = 0
+
+    elif robot_state == "turn_to_heading":
+        # Rotate to adjust the heading error (η).
+        if abs(eta) > 0.1:
+            if eta > 0:
+                vL = -MAX_SPEED / 4
+                vR = MAX_SPEED / 4
+            else:
+                vL = MAX_SPEED / 4
+                vR = -MAX_SPEED / 4
+        else:
+            # Finished the turn; stop and update the waypoint.
+            vL = 0
+            vR = 0
+            index = (index + 1) % len(waypoints)
+            robot_state = "turn_to_goal"
+            
+    if robot_state=="proportional_controller":
+        vL=-5*alpha+12.56*rho
+        vR=5*alpha+12.56*rho
+        if rho<0.05: index = (index + 1) % len(waypoints)
         
-    
     print("Current pose: [%5f, %5f, %5f]" % (pose_x, pose_y, pose_theta))
     leftMotor.setVelocity(vL)
     rightMotor.setVelocity(vR)
