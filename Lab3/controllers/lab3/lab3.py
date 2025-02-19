@@ -24,7 +24,7 @@ EPUCK_AXLE_DIAMETER=0.053 # ePuck's wheels are 53mm apart.
 EPUCK_MAX_WHEEL_SPEED=0.1257 # ePuck wheel speed in m/s
 MAX_SPEED=6.28
 
-robot_state="proportional_controller" # Initial state of the robot
+robot_state="turn_to_goal" # Initial state of the robot
 # get the time step of the current world.
 SIM_TIMESTEP=int(robot.getBasicTimeStep())
 
@@ -61,7 +61,7 @@ waypoints=[
     (0.324869, -0.256266),
     (0.0497542, -0.0275227),
     (0.344084, 0.249577),
-    (0.122365, 0.419171),
+    (0.149131, 0.423142),
     (-0.303882, 0.416781),
     (-0.211567, 0.146211),
     (-0.305326, -0.0442482),
@@ -166,8 +166,8 @@ while robot.step(SIM_TIMESTEP) != -1:
             robot_state = "turn_to_goal"
             
     if robot_state=="proportional_controller":
-        vL=-5*alpha+12.56*rho
-        vR=5*alpha+12.56*rho
+        vL=max(min(-8*alpha+12.56*rho, MAX_SPEED),-MAX_SPEED)
+        vR=max(min(8*alpha+12.56*rho, MAX_SPEED),-MAX_SPEED)
         if rho<0.05: index = (index + 1) % len(waypoints)
         
     print("Current pose: [%5f, %5f, %5f]" % (pose_x, pose_y, pose_theta))
