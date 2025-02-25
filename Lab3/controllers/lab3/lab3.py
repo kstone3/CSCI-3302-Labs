@@ -24,7 +24,8 @@ EPUCK_AXLE_DIAMETER=0.053 # ePuck's wheels are 53mm apart.
 EPUCK_MAX_WHEEL_SPEED=0.1257 # ePuck wheel speed in m/s
 MAX_SPEED=6.28
 
-robot_state="turn_to_goal" # Initial state of the robot
+robot_state="turn_to_turn_control" # Initial state of the robot
+robot_semi_state = 0 #turn_drive_turn_control solution
 # get the time step of the current world.
 SIM_TIMESTEP=int(robot.getBasicTimeStep())
 
@@ -122,10 +123,10 @@ while robot.step(SIM_TIMESTEP) != -1:
         else:  # None of the sensors detect the line
             vL=-MAX_SPEED / 4
             vR=MAX_SPEED / 4
-    
-    if robot_state == "turn_to_goal":
+
+    if robot_state == "turn_drive_turn_control":
         # Rotate in place until the bearing error (α) is within tolerance.
-        if abs(alpha) > 0.1:
+        if (abs(alpha) > 0.1) and (robot_semi_state == 0):
             if alpha > 0:
                 vL = -MAX_SPEED / 4
                 vR = MAX_SPEED / 4
@@ -133,37 +134,32 @@ while robot.step(SIM_TIMESTEP) != -1:
                 vL = MAX_SPEED / 4
                 vR = -MAX_SPEED / 4
         else:
-            # Bearing error is small; proceed to drive forward.
-            robot_state = "drive"
-            vL = 0
-            vR = 0
-
-    elif robot_state == "drive":
-        # Drive forward while reducing position error (ρ).
-        if rho > 0.05:
-            vL =  MAX_SPEED / 2
-            vR =  MAX_SPEED / 2
-        else:
-            # Arrived near the waypoint; transition to final heading adjustment.
-            robot_state = "turn_to_heading"
-            vL = 0
-            vR = 0
-
-    elif robot_state == "turn_to_heading":
-        # Rotate to adjust the heading error (η).
-        if abs(eta) > 0.1:
-            if eta > 0:
-                vL = -MAX_SPEED / 4
-                vR = MAX_SPEED / 4
+            if (robot_semi_state == 0) or (robot_semi_state == 1):
+                # Bearing error is small; proceed to drive forward.
+                vL = 0
+                vR = 0
+                # Drive forward while reducing position error (ρ).
+                if (rho > 0.05):
+                    vL =  MAX_SPEED / 2
+                    vR =  MAX_SPEED / 2
+                    robot_semi_state = 1
+                else:
+                    robot_semi_state = 2
             else:
-                vL = MAX_SPEED / 4
-                vR = -MAX_SPEED / 4
-        else:
-            # Finished the turn; stop and update the waypoint.
-            vL = 0
-            vR = 0
-            index = (index + 1) % len(waypoints)
-            robot_state = "turn_to_goal"
+                # Rotate to adjust the heading error (η).
+                if abs(eta) > 0.1:
+                    if eta > 0:
+                        vL = -MAX_SPEED / 4
+                        vR = MAX_SPEED / 4
+                    else:
+                        vL = MAX_SPEED / 4
+                        vR = -MAX_SPEED / 4
+                else:
+                    # Finished the turn; stop and update the waypoint.
+                    vL = 0
+                    vR = 0
+                    index = (index + 1) % len(waypoints)
+                    robot_semi_state = 0
             
     if robot_state=="proportional_controller":
         vL=max(min(-8*alpha+12.56*rho, MAX_SPEED),-MAX_SPEED)
