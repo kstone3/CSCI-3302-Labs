@@ -24,7 +24,7 @@ EPUCK_AXLE_DIAMETER=0.053 # ePuck's wheels are 53mm apart.
 EPUCK_MAX_WHEEL_SPEED=0.1257 # ePuck wheel speed in m/s
 MAX_SPEED=6.28
 
-robot_state="turn_drive_turn_control" # Initial state of the robot
+robot_state="proportional_controller" # Initial state of the robot
 robot_semi_state = 0 #turn_drive_turn_control solution
 # get the time step of the current world.
 SIM_TIMESTEP=int(robot.getBasicTimeStep())
