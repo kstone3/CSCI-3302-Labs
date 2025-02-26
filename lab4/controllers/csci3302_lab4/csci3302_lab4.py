@@ -65,9 +65,8 @@ lidar.enablePointCloud()
 # and there are LIDAR_ANGLE_BINS. An easy way to generate the
 # array that contains all the angles is to use linspace from
 # the numpy package.
-
-
-
+lidar_readings = []
+lidar_angles = np.linspace(-LIDAR_ANGLE_RANGE/2, LIDAR_ANGLE_RANGE/2, LIDAR_ANGLE_BINS)
 #### End of Part 1 #####
  
 # Main Control Loop:
@@ -91,7 +90,17 @@ while robot.step(SIM_TIMESTEP) != -1:
     # into coordinates on the map. Draw a red dot using display.drawPixel()
     # where the robot moves.
     
+    map_width = display.getWidth()
+    map_height = display.getHeight()
 
+    # Convert the robot's world coordinates (meters) into map coordinates (pixels)
+    # Here we assume that world x and y values range from 0 to 1.
+    pixel_x = int(pose_x * map_width)
+    pixel_y = int(pose_y * map_height)
+
+    # Draw a red dot on the map at the robot's current location
+    display.setColor(0xff0000)  # Set the color to red (in hexadecimal)
+    display.drawPixel(pixel_x, pixel_y)
     
     
     ##### Part 3: Convert Lidar data into world coordinates
