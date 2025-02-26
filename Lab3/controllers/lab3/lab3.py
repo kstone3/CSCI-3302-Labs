@@ -1,4 +1,4 @@
-"""csci3302_lab2 controller."""
+"""csci3302_lab3 controller."""
 
 # You may need to import some classes of the controller module.
 import math
@@ -24,7 +24,7 @@ EPUCK_AXLE_DIAMETER=0.053 # ePuck's wheels are 53mm apart.
 EPUCK_MAX_WHEEL_SPEED=0.1257 # ePuck wheel speed in m/s
 MAX_SPEED=6.28
 
-robot_state="turn_to_turn_control" # Initial state of the robot
+robot_state="turn_drive_turn_control" # Initial state of the robot
 robot_semi_state = 0 #turn_drive_turn_control solution
 # get the time step of the current world.
 SIM_TIMESTEP=int(robot.getBasicTimeStep())
@@ -134,18 +134,19 @@ while robot.step(SIM_TIMESTEP) != -1:
                 vL = MAX_SPEED / 4
                 vR = -MAX_SPEED / 4
         else:
-            if (robot_semi_state == 0) or (robot_semi_state == 1):
+            if robot_semi_state == 0:
                 # Bearing error is small; proceed to drive forward.
                 vL = 0
                 vR = 0
+                robot_semi_state = 1
+            elif robot_semi_state == 1:
                 # Drive forward while reducing position error (ρ).
                 if (rho > 0.05):
                     vL =  MAX_SPEED / 2
                     vR =  MAX_SPEED / 2
-                    robot_semi_state = 1
                 else:
                     robot_semi_state = 2
-            else:
+            elif robot_semi_state == 2:
                 # Rotate to adjust the heading error (η).
                 if abs(eta) > 0.1:
                     if eta > 0:
