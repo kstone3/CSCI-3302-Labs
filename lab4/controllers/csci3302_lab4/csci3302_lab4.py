@@ -116,6 +116,7 @@ def bresenham_line(x0, y0, x1, y1):
 occupancy_grid = [[None for _ in range(map_width)] for _ in range(map_height)]
 display.setColor(0x000000)  # Black background.
 display.fillRectangle(0, 0, map_width, map_height)
+display.imageSave(None,"map.png") 
 while robot.step(SIM_TIMESTEP) != -1:     
     #####################################################
     #                 Sensing                           #
@@ -147,21 +148,22 @@ while robot.step(SIM_TIMESTEP) != -1:
     # rx and ry into world coordinates wx and wy. 
     # The arena is 1x1m2 and its origin is in the top left of the arena. 
     # if state=='stationary':
-    robot_world_trans_matrix = np.array([
-        [np.cos(pose_theta),  np.sin(pose_theta), pose_x],
-        [-np.sin(pose_theta), np.cos(pose_theta), pose_y],
-        [0,                   0,                1     ]
-    ])
     free_space_lines = []
     obstacle_points = []
+    robot_world_trans_matrix = np.array([
+        [np.cos(pose_theta), -np.sin(pose_theta), pose_x],
+        [np.sin(pose_theta),  np.cos(pose_theta), pose_y],
+        [0,                   0,                  1     ]
+    ])
+
     for i, rho in enumerate(lidar_sensor_readings):
         if np.isinf(rho):
             continue
-        # print("Lidar Sensor: ", i, " reading: ", rho)
-        alpha = lidar_offsets[i]  # angle offset for beam i
+        alpha = lidar_offsets[i]  # beam's angular offset relative to forward
         
-        r_x = rho * np.sin(alpha)
-        r_y = rho * np.cos(alpha)
+        # Convert polar to robot-frame Cartesian coordinates:
+        r_x = rho * np.sin(alpha)   # lateral offset (to right)
+        r_y = rho * np.cos(alpha)   # forward offset
         
         # Form the homogeneous coordinate for the robot-frame point.
         robot_point = np.array([r_x, r_y, 1.0])
@@ -169,6 +171,8 @@ while robot.step(SIM_TIMESTEP) != -1:
         # Use the transformation matrix to get world coordinates.
         world_point = robot_world_trans_matrix.dot(robot_point)
         wx, wy = world_point[0], world_point[1]
+        
+        # Convert to pixel coordinates (assuming a 1×1 m arena mapped to display dimensions)
         obs_pixel_x = int(wx * map_width)
         obs_pixel_y = int(wy * map_height)
         
@@ -177,7 +181,7 @@ while robot.step(SIM_TIMESTEP) != -1:
         # obstacle_points.append((obs_pixel_x, obs_pixel_y))
         # if (obs_pixel_x, obs_pixel_y) not in known_obs:
         #     known_obs.add((obs_pixel_x, obs_pixel_y))
-        # # print("Obstacle detected at: ", obs_pixel_x, obs_pixel_y)
+        print("Obstacle detected at: ", obs_pixel_x, obs_pixel_y)
 
         # if (pixel_x, pixel_y, obs_pixel_x, obs_pixel_y) not in known_free:
         #     known_free.add((pixel_x, pixel_y, obs_pixel_x, obs_pixel_y))
@@ -279,4 +283,4 @@ while robot.step(SIM_TIMESTEP) != -1:
     pose_theta += (dsr-dsl)/EPUCK_AXLE_DIAMETER
     i+=1
     # Feel free to uncomment this for debugging
-    # print("X: %f Y: %f Theta: %f " % (pose_x,pose_y,pose_theta))
+    print("X: %f Y: %f Theta: %f " % (pose_x,pose_y,pose_theta))
