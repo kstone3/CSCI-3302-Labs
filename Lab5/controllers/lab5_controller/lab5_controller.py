@@ -82,8 +82,8 @@ lidar_offsets = lidar_offsets[83:len(lidar_offsets)-83] # Only keep lidar readin
 
 ##################### IMPORTANT #####################
 # Set the mode here. Please change to 'autonomous' before submission
-# mode = 'manual' # Part 1.1: manual mode
-mode = 'planner'
+mode = 'manual' # Part 1.1: manual mode
+# mode = 'planner'
 # mode = 'autonomous'
 # mode = 'picknplace'
 
@@ -195,7 +195,7 @@ while robot.step(timestep) != -1 and mode != 'planner':
             wy = 11.999
         if rho < LIDAR_SENSOR_MAX_RANGE:
             # Part 1.3: visualize map gray values.
- 
+            
             # You will eventually REPLACE the following lines with a more robust version of the map
             # with a grayscale drawing containing more levels than just 0 and 1.
             display.setColor(int(0X0000FF))
@@ -230,7 +230,9 @@ while robot.step(timestep) != -1 and mode != 'planner':
             vR = 0
         elif key == ord('S'):
             # Part 1.4: Filter map and save to filesystem
-
+            map = map > 0.5  
+            np.multiply(map, 1) 
+            np.save("map.npy", map)
             print("Map file saved")
         elif key == ord('L'):
             # You will not use this portion in Part 1 but here's an example for loading saved a numpy array
