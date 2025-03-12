@@ -1,8 +1,10 @@
 """lab5 controller."""
+from os import path
 from controller import Robot, Motor, Camera, RangeFinder, Lidar, Keyboard
 import math
 import numpy as np
 from matplotlib import pyplot as plt
+import heapq
 from scipy.signal import convolve2d # Uncomment if you want to use something else for finding the configuration space
 
 MAX_SPEED = 7.0  # [rad/s]
@@ -111,19 +113,82 @@ if mode == 'planner':
         :param end: A tuple of indices representing the end cell in the map
         :return: A list of tuples as a path from the given start to the given end in the given maze
         '''
-        pass
+        if map[start[0], start[1]] != 0 or map[end[0], end[1]] != 0:
+            return []
+        
+        def heuristic(a, b):
+            return math.sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2)
+
+        def get_neighbors(cell):
+            neighbors = []
+            for dx in [-1, 0, 1]:
+                for dy in [-1, 0, 1]:
+                    if dx == 0 and dy == 0:
+                        continue
+                    nx = cell[0] + dx
+                    ny = cell[1] + dy
+                    if 0 <= nx < map.shape[0] and 0 <= ny < map.shape[1] and map[nx, ny] == 0:
+                        neighbors.append((nx, ny))
+            return neighbors
+
+        def move_cost(current, neighbor):
+            return math.sqrt(2) if current[0] != neighbor[0] and current[1] != neighbor[1] else 1
+
+        open = []
+        heapq.heappush(open, (heuristic(start, end), 0, start))
+        prev_location = {}
+        current_cost = {start: 0}
+        
+        while open:
+            current_priority, cost, current = heapq.heappop(open)
+            if current == end:
+                path = []
+                while current != start:
+                    path.append(current)
+                    current = prev_location[current]
+                path.append(start)
+                path.reverse()
+                return path
+            
+            for neighbor in get_neighbors(current):
+                new_cost=current_cost[current] + move_cost(current, neighbor)
+                if neighbor not in current_cost or new_cost<current_cost[neighbor]:
+                    current_cost[neighbor] = new_cost
+                    priority = new_cost + heuristic(neighbor, end)
+                    heapq.heappush(open, (priority, new_cost, neighbor))
+                    prev_location[neighbor] = current
+        return []
 
     # Part 2.1: Load map (map.npy) from disk and visualize it
-
+    map = np.load("map.npy")
+    plt.imshow(map)
+    plt.show()
 
     # Part 2.2: Compute an approximation of the “configuration space”
+    configured_map = np.copy(map)
+    obstacle_detected = np.argwhere(map>0)
+    footprint_radius = 8
+    for x, y in obstacle_detected:
+        x_min, x_max = max(0, x - footprint_radius), min(map[0], x + footprint_radius)
+        y_min, y_max = max(0, y - footprint_radius), min(map[1], y + footprint_radius)
 
-
+        configured_map[x_min:x_max, y_min:y_max] = 1
+    plt.show(np.fliplr(configured_map), cmap = "gray")
+    np.save("configured_map.npy", configured_map)
     # Part 2.3 continuation: Call path_planner
-
+    start_world_coords = (pose_x, pose_y)
+    end_world_coords = (pose_x + 1, pose_y + 1) # Replace with actual end coordinates
+    path = path_planner(configured_map, start, end)
 
     # Part 2.4: Turn paths into waypoints and save on disk as path.npy and visualize it
+    def convert_to_world(path):
+        return [(x - 300 / 30, y - 390 / 30) for x, y in path]
+    
     waypoints = []
+
+    if path:
+        waypoints = convert_to_world(path)
+        np.save("path.npy", np.array(waypoints))
 
 ######################
 #
@@ -134,7 +199,7 @@ if mode == 'planner':
 # Part 1.2: Map Initialization
 
 # Initialize your map data structure here as a 2D floating point array
-map = np.zeros(shape=[360,360])
+map = np.zeros(shape=[361,361])
 waypoints = []
 
 if mode == 'autonomous':
@@ -189,17 +254,23 @@ while robot.step(timestep) != -1 and mode != 'planner':
         ################ ^ [End] Do not modify ^ ##################
 
         #print("Rho: %f Alpha: %f rx: %f ry: %f wx: %f wy: %f" % (rho,alpha,rx,ry,wx,wy))
-        if wx >= 12:
-            wx = 11.999
-        if wy >= 12:
-            wy = 11.999
+        if wx >= 13:
+            wx = 12.999
+        if wy <= -10:
+            wy = -9.999
         if rho < LIDAR_SENSOR_MAX_RANGE:
             # Part 1.3: visualize map gray values.
-            
             # You will eventually REPLACE the following lines with a more robust version of the map
             # with a grayscale drawing containing more levels than just 0 and 1.
-            display.setColor(int(0X0000FF))
-            display.drawPixel(360-abs(int(wx*30)),abs(int(wy*30)))
+            map_x = 360-int(abs(wx*27.6923076923))
+            map_y = int(abs(wy*30))
+            map[map_y, map_x]+=5e-3
+            # color = (g*256**2 + g*256+g)*255+=5e-3
+            # display.setColor(color)
+            # display.drawPixel()
+            # g=360-abs(int(wx*30)),abs(int(wy*30))
+            # color= (g*256**2+g*256+g)*255
+            # map[wx,wy]=color
 
     # Draw the robot's current pose on the 360x360 display
     display.setColor(int(0xFF0000))
@@ -233,6 +304,10 @@ while robot.step(timestep) != -1 and mode != 'planner':
             map = map > 0.5  
             np.multiply(map, 1) 
             np.save("map.npy", map)
+            print(map)
+            map_display=(map*256**2+map*256+map)*255
+            plt.imshow(map_display,origin='upper')
+            plt.savefig("map.png")
             print("Map file saved")
         elif key == ord('L'):
             # You will not use this portion in Part 1 but here's an example for loading saved a numpy array
