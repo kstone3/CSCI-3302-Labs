@@ -98,12 +98,17 @@ mode = 'manual' # Part 1.1: manual mode
 ###################
 if mode == 'planner':
     # Part 2.3: Provide start and end in world coordinate frame and convert it to map's frame
-    start_w = None # (Pose_X, Pose_Y) in meters
-    end_w = None # (Pose_X, Pose_Y) in meters
+    start_w = (-9, -9) # (Pose_X, Pose_Y) in meters
+    end_w = (-1, -1) # (Pose_X, Pose_Y) in meters
+
+    def world_to_map(world_x, world_y):
+        map_x = int((world_x + 12) * 30)
+        map_y = int((world_y + 12) * 30)
+        return map_x, map_y
 
     # Convert the start_w and end_w from the webots coordinate frame into the map frame
-    start = None # (x, y) in 360x360 map
-    end = None # (x, y) in 360x360 map
+    start = world_to_map(start_w[0], start_w[1]) # (x, y) in 360x360 map
+    end = world_to_map(end_w[0], end_w[1]) # (x, y) in 360x360 map
 
     # Part 2.3: Implement A* or Dijkstra's Algorithm to find a path
     def path_planner(map, start, end):
@@ -167,13 +172,14 @@ if mode == 'planner':
     # Part 2.2: Compute an approximation of the “configuration space”
     configured_map = np.copy(map)
     obstacle_detected = np.argwhere(map>0)
-    footprint_radius = 8
+    footprint_radius = 5
     for x, y in obstacle_detected:
-        x_min, x_max = max(0, x - footprint_radius), min(map[0], x + footprint_radius)
-        y_min, y_max = max(0, y - footprint_radius), min(map[1], y + footprint_radius)
+        x_min, x_max = max(0, x - footprint_radius), min(map.shape[0], x + footprint_radius)
+        y_min, y_max = max(0, y - footprint_radius), min(map.shape[1], y + footprint_radius)
 
         configured_map[x_min:x_max, y_min:y_max] = 1
-    plt.show(np.fliplr(configured_map), cmap = "gray")
+    plt.imshow(configured_map)
+    plt.show()
     np.save("configured_map.npy", configured_map)
     # Part 2.3 continuation: Call path_planner
     start_world_coords = (pose_x, pose_y)
@@ -182,7 +188,7 @@ if mode == 'planner':
 
     # Part 2.4: Turn paths into waypoints and save on disk as path.npy and visualize it
     def convert_to_world(path):
-        return [(x - 300 / 30, y - 390 / 30) for x, y in path]
+        return [(x - 360 / 30, y - 360 / 30) for x, y in path]
     
     waypoints = []
 
@@ -190,6 +196,15 @@ if mode == 'planner':
         waypoints = convert_to_world(path)
         np.save("path.npy", np.array(waypoints))
 
+    plt.imshow(configured_map, origin="upper")
+    # Plot start and end points
+    plt.scatter(start[1], start[0], c='green', marker='o')
+    plt.scatter(end[1], end[0], c='blue', marker='x')
+    # Plot path if found
+    if path:
+        path_x, path_y = zip(*path)
+        plt.plot(path_y, path_x, c='red', linewidth=2)
+    plt.show()
 ######################
 #
 # Map Initialization
@@ -340,7 +355,7 @@ while robot.step(timestep) != -1 and mode != 'planner':
     pose_y -= (vL+vR)/2/MAX_SPEED*MAX_SPEED_MS*timestep/1000.0*math.sin(pose_theta)
     pose_theta += (vR-vL)/AXLE_LENGTH/MAX_SPEED*MAX_SPEED_MS*timestep/1000.0
 
-    # print("X: %f Z: %f Theta: %f" % (pose_x, pose_y, pose_theta))
+    print("X: %f Z: %f Theta: %f" % (pose_x, pose_y, pose_theta))
 
     # Actuator commands
     robot_parts[MOTOR_LEFT].setVelocity(vL)
