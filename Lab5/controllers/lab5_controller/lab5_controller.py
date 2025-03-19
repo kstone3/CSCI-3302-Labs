@@ -84,22 +84,27 @@ lidar_offsets = lidar_offsets[83:len(lidar_offsets)-83] # Only keep lidar readin
 
 ##################### IMPORTANT #####################
 # Set the mode here. Please change to 'autonomous' before submission
-mode = 'manual' # Part 1.1: manual mode
-# mode = 'planner'
+# mode = 'manual' # Part 1.1: manual mode
+mode = 'planner'
 # mode = 'autonomous'
 # mode = 'picknplace'
 
 
-
+fix_map=False
 ###################
 #
 # Planner
 #
 ###################
 if mode == 'planner':
+    print("Planning route ...")
     # Part 2.3: Provide start and end in world coordinate frame and convert it to map's frame
-    start_w = (-9, -9) # (Pose_X, Pose_Y) in meters
-    end_w = (-1, -1) # (Pose_X, Pose_Y) in meters
+    # start_w = (-8.5,-5.8) # (Pose_X, Pose_Y) in meters
+    while np.any(np.isnan(gps.getValues())):
+        robot.step(timestep)
+        print("Waiting for GPS signal")
+    start_w=(gps.getValues()[0]-1,gps.getValues()[1])
+    end_w = (-9,-9) # (Pose_X, Pose_Y) in meters
 
     def world_to_map(world_x, world_y):
         map_x = int((world_x + 12) * 30)
@@ -111,14 +116,18 @@ if mode == 'planner':
     end = world_to_map(end_w[0], end_w[1]) # (x, y) in 360x360 map
 
     # Part 2.3: Implement A* or Dijkstra's Algorithm to find a path
-    def path_planner(map, start, end):
+    def path_planner(path_planner_map, start, end):
         '''
         :param map: A 2D numpy array of size 360x360 representing the world's cspace with 0 as free space and 1 as obstacle
         :param start: A tuple of indices representing the start cell in the map
         :param end: A tuple of indices representing the end cell in the map
         :return: A list of tuples as a path from the given start to the given end in the given maze
         '''
-        if map[start[0], start[1]] != 0 or map[end[0], end[1]] != 0:
+        if path_planner_map[start[0], start[1]] != 0:
+            print("Start is not traversable")
+            return []
+        if path_planner_map[end[0], end[1]] != 0:
+            print("End is not traversable")
             return []
         
         def heuristic(a, b):
@@ -132,7 +141,7 @@ if mode == 'planner':
                         continue
                     nx = cell[0] + dx
                     ny = cell[1] + dy
-                    if 0 <= nx < map.shape[0] and 0 <= ny < map.shape[1] and map[nx, ny] == 0:
+                    if 0 <= nx < path_planner_map.shape[0] and 0 <= ny < path_planner_map.shape[1] and path_planner_map[nx, ny] == 0:
                         neighbors.append((nx, ny))
             return neighbors
 
@@ -163,29 +172,33 @@ if mode == 'planner':
                     heapq.heappush(open, (priority, new_cost, neighbor))
                     prev_location[neighbor] = current
         return []
-
+    
     # Part 2.1: Load map (map.npy) from disk and visualize it
     map = np.load("map.npy")
-    plt.imshow(map)
-    plt.show()
-
+    if fix_map:
+        map = map.T
+        np.save("map.npy", map)
+    plt.imshow(map.T)
+    # plt.show()
+    plt.savefig("map.png")
+    
     # Part 2.2: Compute an approximation of the “configuration space”
-    configured_map = np.copy(map)
+    configured_map = np.zeros(map.shape)
     obstacle_detected = np.argwhere(map>0)
     footprint_radius = 5
     for x, y in obstacle_detected:
         x_min, x_max = max(0, x - footprint_radius), min(map.shape[0], x + footprint_radius)
         y_min, y_max = max(0, y - footprint_radius), min(map.shape[1], y + footprint_radius)
-
         configured_map[x_min:x_max, y_min:y_max] = 1
-    plt.imshow(configured_map)
-    plt.show()
+    if not np.all(np.isin(configured_map, [0, 1])): print("Error in configured map: contains values other than 0 and 1")
+    print(configured_map==map)
+    plt.imshow(configured_map.T)
+    # plt.show()
     np.save("configured_map.npy", configured_map)
     # Part 2.3 continuation: Call path_planner
-    start_world_coords = (pose_x, pose_y)
-    end_world_coords = (pose_x + 1, pose_y + 1) # Replace with actual end coordinates
+    # start_world_coords = (pose_x, pose_y)
+    # end_world_coords = (pose_x + 1, pose_y + 1) # Replace with actual end coordinates
     path = path_planner(configured_map, start, end)
-
     # Part 2.4: Turn paths into waypoints and save on disk as path.npy and visualize it
     def convert_to_world(path):
         return [(x - 360 / 30, y - 360 / 30) for x, y in path]
@@ -195,16 +208,8 @@ if mode == 'planner':
     if path:
         waypoints = convert_to_world(path)
         np.save("path.npy", np.array(waypoints))
-
-    plt.imshow(configured_map, origin="upper")
-    # Plot start and end points
-    plt.scatter(start[1], start[0], c='green', marker='o')
-    plt.scatter(end[1], end[0], c='blue', marker='x')
-    # Plot path if found
-    if path:
-        path_x, path_y = zip(*path)
-        plt.plot(path_y, path_x, c='red', linewidth=2)
-    plt.show()
+        print("Path found")
+    print("Done planning route")
 ######################
 #
 # Map Initialization
@@ -219,7 +224,21 @@ waypoints = []
 
 if mode == 'autonomous':
     # Part 3.1: Load path from disk and visualize it
-    waypoints = [] # Replace with code to load your path
+    waypoints = np.load("path.npy") # Replace with code to load your path
+    print(waypoints.size)
+    index=0
+    configured_map=np.load("configured_map.npy")
+    plt.imshow(configured_map.T, origin="upper")
+    plt.savefig("configured_map.png")
+    # Plot start and end points
+    plt.scatter(waypoints[0][0], waypoints[0][1], c='green', marker='o')
+    plt.scatter(waypoints[-1][0], waypoints[-1][1], c='blue', marker='x')
+    # Plot path if found
+    if waypoints.size > 0:
+        path_x, path_y = zip(*waypoints)
+        # plt.scatter(path_x, path_y, c='black', marker='s')
+        plt.plot(path_x,path_y, c='red', linewidth=2)
+    plt.savefig("path.png")
 
 state = 0 # use this to iterate through your path
 
@@ -229,6 +248,14 @@ if mode == 'picknplace':
     ## do not change start_ws and end_ws below
     start_ws = [(3.7, 5.7)]
     end_ws = [(10.0, 9.3)]
+    #
+    #orange = camera.getRecognitionObjects()
+    #target_pos = getTargetFromObject(orange)
+    #ik_result = calculateIK(target_pos)
+    #reach = reachArm(target_pos, NONE, ik_result)
+    #if reach:
+    #   closeGrip()
+    #   
     pass
 
 while robot.step(timestep) != -1 and mode != 'planner':
@@ -271,15 +298,15 @@ while robot.step(timestep) != -1 and mode != 'planner':
         #print("Rho: %f Alpha: %f rx: %f ry: %f wx: %f wy: %f" % (rho,alpha,rx,ry,wx,wy))
         if wx >= 13:
             wx = 12.999
-        if wy <= -10:
-            wy = -9.999
+        if wy <= -12:
+            wy = -11.999
         if rho < LIDAR_SENSOR_MAX_RANGE:
             # Part 1.3: visualize map gray values.
             # You will eventually REPLACE the following lines with a more robust version of the map
             # with a grayscale drawing containing more levels than just 0 and 1.
             map_x = 360-int(abs(wx*27.6923076923))
             map_y = int(abs(wy*30))
-            map[map_y, map_x]+=5e-3
+            map[map_x,map_y]+=5e-3
             # color = (g*256**2 + g*256+g)*255+=5e-3
             # display.setColor(color)
             # display.drawPixel()
@@ -321,12 +348,15 @@ while robot.step(timestep) != -1 and mode != 'planner':
             np.save("map.npy", map)
             print(map)
             map_display=(map*256**2+map*256+map)*255
-            plt.imshow(map_display,origin='upper')
+            plt.imshow(map_display.T,origin='upper')
             plt.savefig("map.png")
             print("Map file saved")
         elif key == ord('L'):
             # You will not use this portion in Part 1 but here's an example for loading saved a numpy array
             map = np.load("map.npy")
+            map_display=(map*256**2+map*256+map)*255
+            plt.imshow(map_display.T,origin='upper')
+            plt.savefig("map.png")
             print("Map loaded")
         else: # slow down
             vL *= 0.75
@@ -334,20 +364,32 @@ while robot.step(timestep) != -1 and mode != 'planner':
     else: # not manual mode
         # Part 3.2: Feedback controller
         #STEP 1: Calculate the error
-        rho = 0
-        alpha = 0
-
-        #STEP 2: Controller
-        dX = 0
-        dTheta = 0
-
-        #STEP 3: Compute wheelspeeds
-        vL = 0
-        vR = 0
+        x_goal, y_goal=waypoints[index]
+        rho=np.sqrt((x_goal - pose_x) ** 2 + (y_goal - pose_y) ** 2)  # Distance to the goal
+        theta_g = np.arctan2(y_goal - pose_y, x_goal - pose_x)  # Angle to the goal
+        alpha = theta_g - pose_theta  # Difference from robot's heading
+        if alpha<-np.pi:
+            alpha += 2*np.pi
+        if index < len(waypoints) - 1:
+            x_next, y_next = waypoints[index + 1]
+        else:
+            x_next, y_next = waypoints[0]
+        theta_goal_orientation = np.arctan2(y_next - y_goal, x_next - x_goal)
+        eta = theta_goal_orientation - pose_theta
+        eta = (eta + np.pi) % (2 * np.pi) - np.pi
 
         # Normalize wheelspeed
         # (Keep the wheel speeds a bit less than the actual platform MAX_SPEED to minimize jerk)
-
+        vL=max(min(-8*alpha+12.56*rho, MAX_SPEED),-MAX_SPEED)
+        vR=max(min(8*alpha+12.56*rho, MAX_SPEED),-MAX_SPEED)
+        if rho<0.05: 
+            if index < len(waypoints) - 1: index += 1
+            else: 
+                print("Goal reached")
+                vL=0
+                vR=0
+        # vL = 0
+        # vR = 0
 
     # Odometry code. Don't change vL or vR speeds after this line.
     # We are using GPS and compass for this lab to get a better pose but this is how you'll do the odometry
@@ -355,7 +397,7 @@ while robot.step(timestep) != -1 and mode != 'planner':
     pose_y -= (vL+vR)/2/MAX_SPEED*MAX_SPEED_MS*timestep/1000.0*math.sin(pose_theta)
     pose_theta += (vR-vL)/AXLE_LENGTH/MAX_SPEED*MAX_SPEED_MS*timestep/1000.0
 
-    print("X: %f Z: %f Theta: %f" % (pose_x, pose_y, pose_theta))
+    # print("X: %f Z: %f Theta: %f" % (pose_x, pose_y, pose_theta))
 
     # Actuator commands
     robot_parts[MOTOR_LEFT].setVelocity(vL)
