@@ -84,7 +84,7 @@ lidar_offsets = lidar_offsets[83:len(lidar_offsets)-83] # Only keep lidar readin
 
 ##################### IMPORTANT #####################
 # Set the mode here. Please change to 'autonomous' before submission
-# mode = 'manual' # Part 1.1: manual mode
+#mode = 'manual' # Part 1.1: manual mode
 mode = 'planner'
 # mode = 'autonomous'
 # mode = 'picknplace'
@@ -99,16 +99,19 @@ fix_map=False
 if mode == 'planner':
     print("Planning route ...")
     # Part 2.3: Provide start and end in world coordinate frame and convert it to map's frame
-    # start_w = (-8.5,-5.8) # (Pose_X, Pose_Y) in meters
-    while np.any(np.isnan(gps.getValues())):
-        robot.step(timestep)
-        print("Waiting for GPS signal")
-    start_w=(gps.getValues()[0]-1,gps.getValues()[1])
-    end_w = (-9,-9) # (Pose_X, Pose_Y) in meters
+    start_w = (-7.97,-4.84) # (Pose_X, Pose_Y) in meters
+    #test1: start_w = (-3, -3.3)
+    #test2: start_w = (-8.5, -2)
+    # while np.any(np.isnan(gps.getValues())):
+    #     robot.step(timestep)
+    #     print("Waiting for GPS signal")
+    #start_w=(gps.getValues()[0]-1,gps.getValues()[1])
+    end_w = (-5.06,-7.32) # (Pose_X, Pose_Y) in meters
+    #end_w = (-6.9, -9.3)
 
     def world_to_map(world_x, world_y):
         map_x = int((world_x + 12) * 30)
-        map_y = int((world_y + 12) * 30)
+        map_y = int(-world_y * 30)
         return map_x, map_y
 
     # Convert the start_w and end_w from the webots coordinate frame into the map frame
@@ -179,7 +182,7 @@ if mode == 'planner':
         map = map.T
         np.save("map.npy", map)
     plt.imshow(map.T)
-    # plt.show()
+    #plt.show()
     plt.savefig("map.png")
     
     # Part 2.2: Compute an approximation of the “configuration space”
@@ -195,13 +198,21 @@ if mode == 'planner':
     plt.imshow(configured_map.T)
     # plt.show()
     np.save("configured_map.npy", configured_map)
+    plt.savefig("Configured_map.png")
     # Part 2.3 continuation: Call path_planner
     # start_world_coords = (pose_x, pose_y)
     # end_world_coords = (pose_x + 1, pose_y + 1) # Replace with actual end coordinates
     path = path_planner(configured_map, start, end)
     # Part 2.4: Turn paths into waypoints and save on disk as path.npy and visualize it
+    plt.scatter(path[0][0], path[0][1], c='green', marker='o')
+    plt.scatter(path[-1][0], path[-1][1], c='blue', marker='x')
+    if path:
+        path_x, path_y = zip(*path)
+        # plt.scatter(path_x, path_y, c='black', marker='s')
+        plt.plot(path_x,path_y, c='red', linewidth=2)
+    plt.savefig("path.png")
     def convert_to_world(path):
-        return [(x - 360 / 30, y - 360 / 30) for x, y in path]
+        return [((x - 360) / 30, y / -30) for x, y in path]
     
     waypoints = []
 
@@ -210,6 +221,7 @@ if mode == 'planner':
         np.save("path.npy", np.array(waypoints))
         print("Path found")
     print("Done planning route")
+    mode = 'autonomous'
 ######################
 #
 # Map Initialization
@@ -227,18 +239,18 @@ if mode == 'autonomous':
     waypoints = np.load("path.npy") # Replace with code to load your path
     print(waypoints.size)
     index=0
-    configured_map=np.load("configured_map.npy")
-    plt.imshow(configured_map.T, origin="upper")
-    plt.savefig("configured_map.png")
+    # configured_map=np.load("configured_map.npy")
+    # plt.imshow(configured_map.T, origin="upper")
+    # plt.savefig("configured_map.png")
     # Plot start and end points
-    plt.scatter(waypoints[0][0], waypoints[0][1], c='green', marker='o')
-    plt.scatter(waypoints[-1][0], waypoints[-1][1], c='blue', marker='x')
-    # Plot path if found
-    if waypoints.size > 0:
-        path_x, path_y = zip(*waypoints)
-        # plt.scatter(path_x, path_y, c='black', marker='s')
-        plt.plot(path_x,path_y, c='red', linewidth=2)
-    plt.savefig("path.png")
+    # plt.scatter(waypoints[0][0], waypoints[0][1], c='green', marker='o')
+    # plt.scatter(waypoints[-1][0], waypoints[-1][1], c='blue', marker='x')
+    # # Plot path if found
+    # if waypoints.size > 0:
+    #     path_x, path_y = zip(*waypoints)
+    #     # plt.scatter(path_x, path_y, c='black', marker='s')
+    #     plt.plot(path_x,path_y, c='red', linewidth=2)
+    # plt.savefig("path.png")
 
 state = 0 # use this to iterate through your path
 
@@ -296,15 +308,15 @@ while robot.step(timestep) != -1 and mode != 'planner':
         ################ ^ [End] Do not modify ^ ##################
 
         #print("Rho: %f Alpha: %f rx: %f ry: %f wx: %f wy: %f" % (rho,alpha,rx,ry,wx,wy))
-        if wx >= 13:
-            wx = 12.999
+        if wx >= 12:
+            wx = 11.999
         if wy <= -12:
             wy = -11.999
         if rho < LIDAR_SENSOR_MAX_RANGE:
             # Part 1.3: visualize map gray values.
             # You will eventually REPLACE the following lines with a more robust version of the map
             # with a grayscale drawing containing more levels than just 0 and 1.
-            map_x = 360-int(abs(wx*27.6923076923))
+            map_x = 360-int(abs(wx*30))
             map_y = int(abs(wy*30))
             map[map_x,map_y]+=5e-3
             # color = (g*256**2 + g*256+g)*255+=5e-3
@@ -368,21 +380,23 @@ while robot.step(timestep) != -1 and mode != 'planner':
         rho=np.sqrt((x_goal - pose_x) ** 2 + (y_goal - pose_y) ** 2)  # Distance to the goal
         theta_g = np.arctan2(y_goal - pose_y, x_goal - pose_x)  # Angle to the goal
         alpha = theta_g - pose_theta  # Difference from robot's heading
+        print("rho:", rho, "theta_g: ", theta_g, "alpha: ", alpha)
         if alpha<-np.pi:
             alpha += 2*np.pi
         if index < len(waypoints) - 1:
             x_next, y_next = waypoints[index + 1]
         else:
             x_next, y_next = waypoints[0]
-        theta_goal_orientation = np.arctan2(y_next - y_goal, x_next - x_goal)
-        eta = theta_goal_orientation - pose_theta
-        eta = (eta + np.pi) % (2 * np.pi) - np.pi
-
+        print("x_next:", x_next, "y_next: ", y_next)
+        # theta_goal_orientation = np.arctan2(y_next - y_goal, x_next - x_goal)
+        # eta = theta_goal_orientation - pose_theta
+        # eta = (eta + np.pi) % (2 * np.pi) - np.pi
         # Normalize wheelspeed
         # (Keep the wheel speeds a bit less than the actual platform MAX_SPEED to minimize jerk)
-        vL=max(min(-8*alpha+12.56*rho, MAX_SPEED),-MAX_SPEED)
-        vR=max(min(8*alpha+12.56*rho, MAX_SPEED),-MAX_SPEED)
-        if rho<0.05: 
+        vL=max(min(0.5*alpha+2*rho, MAX_SPEED-3),-MAX_SPEED+4)
+        vR=max(min(-0.5*alpha+2*rho, MAX_SPEED-3),-MAX_SPEED+4)
+        print("vL:", vL, "vR: ", vR)
+        if rho<0.25: 
             if index < len(waypoints) - 1: index += 1
             else: 
                 print("Goal reached")
@@ -397,7 +411,7 @@ while robot.step(timestep) != -1 and mode != 'planner':
     pose_y -= (vL+vR)/2/MAX_SPEED*MAX_SPEED_MS*timestep/1000.0*math.sin(pose_theta)
     pose_theta += (vR-vL)/AXLE_LENGTH/MAX_SPEED*MAX_SPEED_MS*timestep/1000.0
 
-    # print("X: %f Z: %f Theta: %f" % (pose_x, pose_y, pose_theta))
+    print("X: %f Z: %f Theta: %f" % (pose_x, pose_y, pose_theta))
 
     # Actuator commands
     robot_parts[MOTOR_LEFT].setVelocity(vL)
