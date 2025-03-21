@@ -99,19 +99,22 @@ fix_map=False
 if mode == 'planner':
     print("Planning route ...")
     # Part 2.3: Provide start and end in world coordinate frame and convert it to map's frame
-    start_w = (-7.97,-4.84) # (Pose_X, Pose_Y) in meters
+    # start_w = (-7.97,-4.84) # (Pose_X, Pose_Y) in meters
+    start_w=(-7.1,-5.3)
     #test1: start_w = (-3, -3.3)
     #test2: start_w = (-8.5, -2)
     # while np.any(np.isnan(gps.getValues())):
     #     robot.step(timestep)
     #     print("Waiting for GPS signal")
-    #start_w=(gps.getValues()[0]-1,gps.getValues()[1])
-    end_w = (-5.06,-7.32) # (Pose_X, Pose_Y) in meters
-    #end_w = (-6.9, -9.3)
+    # start_w=(gps.getValues()[0]-1,gps.getValues()[1])
+    # end_w = (10,7) # (Pose_X, Pose_Y) in meters
+    end_w = (-6.9, -9.3)
 
     def world_to_map(world_x, world_y):
-        map_x = int((world_x + 12) * 30)
-        map_y = int(-world_y * 30)
+        # map_x = int((world_x + 12) * 30)
+        # map_y = int(-world_y * 30)
+        map_x = 360-int(abs(world_x*30))
+        map_y = int(abs(world_y*30))
         return map_x, map_y
 
     # Convert the start_w and end_w from the webots coordinate frame into the map frame
@@ -119,17 +122,17 @@ if mode == 'planner':
     end = world_to_map(end_w[0], end_w[1]) # (x, y) in 360x360 map
 
     # Part 2.3: Implement A* or Dijkstra's Algorithm to find a path
-    def path_planner(path_planner_map, start, end):
+    def path_planner(path_planner_map, start_planner, end_planner):
         '''
         :param map: A 2D numpy array of size 360x360 representing the world's cspace with 0 as free space and 1 as obstacle
         :param start: A tuple of indices representing the start cell in the map
         :param end: A tuple of indices representing the end cell in the map
         :return: A list of tuples as a path from the given start to the given end in the given maze
         '''
-        if path_planner_map[start[0], start[1]] != 0:
+        if path_planner_map[start_planner[0], start_planner[1]] != 0:
             print("Start is not traversable")
             return []
-        if path_planner_map[end[0], end[1]] != 0:
+        if path_planner_map[end_planner[0], end_planner[1]] != 0:
             print("End is not traversable")
             return []
         
@@ -152,18 +155,18 @@ if mode == 'planner':
             return math.sqrt(2) if current[0] != neighbor[0] and current[1] != neighbor[1] else 1
 
         open = []
-        heapq.heappush(open, (heuristic(start, end), 0, start))
+        heapq.heappush(open, (heuristic(start_planner, end_planner), 0, start_planner))
         prev_location = {}
-        current_cost = {start: 0}
+        current_cost = {start_planner: 0}
         
         while open:
             current_priority, cost, current = heapq.heappop(open)
             if current == end:
                 path = []
-                while current != start:
+                while current != start_planner:
                     path.append(current)
                     current = prev_location[current]
-                path.append(start)
+                path.append(start_planner)
                 path.reverse()
                 return path
             
@@ -171,7 +174,7 @@ if mode == 'planner':
                 new_cost=current_cost[current] + move_cost(current, neighbor)
                 if neighbor not in current_cost or new_cost<current_cost[neighbor]:
                     current_cost[neighbor] = new_cost
-                    priority = new_cost + heuristic(neighbor, end)
+                    priority = new_cost + heuristic(neighbor, end_planner)
                     heapq.heappush(open, (priority, new_cost, neighbor))
                     prev_location[neighbor] = current
         return []
@@ -188,7 +191,7 @@ if mode == 'planner':
     # Part 2.2: Compute an approximation of the “configuration space”
     configured_map = np.zeros(map.shape)
     obstacle_detected = np.argwhere(map>0)
-    footprint_radius = 5
+    footprint_radius = 4
     for x, y in obstacle_detected:
         x_min, x_max = max(0, x - footprint_radius), min(map.shape[0], x + footprint_radius)
         y_min, y_max = max(0, y - footprint_radius), min(map.shape[1], y + footprint_radius)
@@ -269,7 +272,7 @@ if mode == 'picknplace':
     #   closeGrip()
     #   
     pass
-
+robot_semi_state = 0
 while robot.step(timestep) != -1 and mode != 'planner':
 
     ###################
@@ -284,11 +287,15 @@ while robot.step(timestep) != -1 and mode != 'planner':
     pose_y = gps.getValues()[1]
     
     n = compass.getValues()
-    rad = -((math.atan2(n[0], n[2]))-1.5708)
+    # rad = -((math.atan2(n[0], n[2]))-1.5708)
+    rad = -((math.atan2(n[0], n[2]))-np.pi)
     pose_theta = rad
 
     lidar_sensor_readings = lidar.getRangeImage()
     lidar_sensor_readings = lidar_sensor_readings[83:len(lidar_sensor_readings)-83]
+
+    # vL=0
+    # vR=0
 
     for i, rho in enumerate(lidar_sensor_readings):
         alpha = lidar_offsets[i]
@@ -373,28 +380,74 @@ while robot.step(timestep) != -1 and mode != 'planner':
         else: # slow down
             vL *= 0.75
             vR *= 0.75
-    else: # not manual mode
+    elif mode=='autonomous': # not manual mode
         # Part 3.2: Feedback controller
         #STEP 1: Calculate the error
         x_goal, y_goal=waypoints[index]
         rho=np.sqrt((x_goal - pose_x) ** 2 + (y_goal - pose_y) ** 2)  # Distance to the goal
         theta_g = np.arctan2(y_goal - pose_y, x_goal - pose_x)  # Angle to the goal
         alpha = theta_g - pose_theta  # Difference from robot's heading
-        print("rho:", rho, "theta_g: ", theta_g, "alpha: ", alpha)
         if alpha<-np.pi:
             alpha += 2*np.pi
         if index < len(waypoints) - 1:
             x_next, y_next = waypoints[index + 1]
         else:
-            x_next, y_next = waypoints[0]
-        print("x_next:", x_next, "y_next: ", y_next)
+            print("Goal reached")
+            vL=0
+            vR=0
+        # print("x_next:", x_next, "y_next: ", y_next)
+        print("rho:", rho, "theta_g: ", theta_g, "alpha: ", alpha)
+        print("x_goal: ", x_goal, "y_goal: ", y_goal)
+        print("index: ", index)
         # theta_goal_orientation = np.arctan2(y_next - y_goal, x_next - x_goal)
         # eta = theta_goal_orientation - pose_theta
         # eta = (eta + np.pi) % (2 * np.pi) - np.pi
         # Normalize wheelspeed
         # (Keep the wheel speeds a bit less than the actual platform MAX_SPEED to minimize jerk)
-        vL=max(min(0.5*alpha+2*rho, MAX_SPEED-3),-MAX_SPEED+4)
-        vR=max(min(-0.5*alpha+2*rho, MAX_SPEED-3),-MAX_SPEED+4)
+        # vL=max(min(0.5*alpha+2*rho, MAX_SPEED-3),-MAX_SPEED+4)
+        # vR=max(min(-0.5*alpha+2*rho, MAX_SPEED-3),-MAX_SPEED+4)
+        vL=max(min(2.5*alpha+6*rho, MAX_SPEED),-MAX_SPEED)
+        vR=max(min(-2.5*alpha+6*rho, MAX_SPEED),-MAX_SPEED)
+        theta_goal_orientation = np.arctan2(y_next - y_goal, x_next - x_goal)
+        eta = theta_goal_orientation - pose_theta
+        eta = (eta + np.pi) % (2 * np.pi) - np.pi
+        # if (abs(alpha) > 0.1) and (robot_semi_state == 0):
+        #     if alpha > 0:
+        #         vL = -MAX_SPEED / 4
+        #         vR = MAX_SPEED / 4
+        #     else:
+        #         vL = MAX_SPEED / 4
+        #         vR = -MAX_SPEED / 4
+        # else:
+        #     if robot_semi_state == 0:
+        #         # Bearing error is small; proceed to drive forward.
+        #         vL = 0
+        #         vR = 0
+        #         robot_semi_state = 1
+        #     elif robot_semi_state == 1:
+        #         # Drive forward while reducing position error (ρ).
+        #         if (rho > 0.05):
+        #             vL =  MAX_SPEED / 2
+        #             vR =  MAX_SPEED / 2
+        #         else:
+        #             robot_semi_state = 2
+        #     elif robot_semi_state == 2:
+        #         # Rotate to adjust the heading error (η).
+        #         if abs(eta) > 0.1:
+        #             if eta > 0:
+        #                 vL = -MAX_SPEED / 4
+        #                 vR = MAX_SPEED / 4
+        #             else:
+        #                 vL = MAX_SPEED / 4
+        #                 vR = -MAX_SPEED / 4
+        #         else:
+        #             # Finished the turn; stop and update the waypoint.
+        #             if index < len(waypoints) - 1: index += 1
+        #             else: 
+        #                 print("Goal reached")
+        #                 vL=0
+        #                 vR=0
+        #             robot_semi_state = 0
         print("vL:", vL, "vR: ", vR)
         if rho<0.25: 
             if index < len(waypoints) - 1: index += 1
@@ -407,9 +460,9 @@ while robot.step(timestep) != -1 and mode != 'planner':
 
     # Odometry code. Don't change vL or vR speeds after this line.
     # We are using GPS and compass for this lab to get a better pose but this is how you'll do the odometry
-    pose_x += (vL+vR)/2/MAX_SPEED*MAX_SPEED_MS*timestep/1000.0*math.cos(pose_theta)
-    pose_y -= (vL+vR)/2/MAX_SPEED*MAX_SPEED_MS*timestep/1000.0*math.sin(pose_theta)
-    pose_theta += (vR-vL)/AXLE_LENGTH/MAX_SPEED*MAX_SPEED_MS*timestep/1000.0
+    # pose_x += (vL+vR)/2/MAX_SPEED*MAX_SPEED_MS*timestep/1000.0*math.cos(pose_theta)
+    # pose_y -= (vL+vR)/2/MAX_SPEED*MAX_SPEED_MS*timestep/1000.0*math.sin(pose_theta)
+    # pose_theta += (vR-vL)/AXLE_LENGTH/MAX_SPEED*MAX_SPEED_MS*timestep/1000.0
 
     print("X: %f Z: %f Theta: %f" % (pose_x, pose_y, pose_theta))
 
