@@ -5,6 +5,7 @@ import math
 import numpy as np
 from matplotlib import pyplot as plt
 import heapq
+import time
 from scipy.signal import convolve2d # Uncomment if you want to use something else for finding the configuration space
 
 MAX_SPEED = 7.0  # [rad/s]
@@ -38,8 +39,16 @@ robot_parts=[]
 
 for i in range(N_PARTS):
     robot_parts.append(robot.getDevice(part_names[i]))
-    robot_parts[i].setPosition(float(target_pos[i]))
-    robot_parts[i].setVelocity(robot_parts[i].getMaxVelocity() / 2.0)
+    if i<10:
+        robot_parts[i].setPosition(float(target_pos[i]))
+        robot_parts[i].setVelocity(robot_parts[i].getMaxVelocity() / 2.0)
+    else:
+        robot_parts[i].setPosition(float(target_pos[i]))
+        robot_parts[i].setVelocity(0)
+    robot.step(timestep)
+    
+for _ in range (100):
+    robot.step(timestep)
 
 # The Tiago robot has a couple more sensors than the e-Puck
 # Some of them are mentioned below. We will use its LiDAR for Lab 5
@@ -108,7 +117,7 @@ if mode == 'planner':
     #     print("Waiting for GPS signal")
     # start_w=(gps.getValues()[0]-1,gps.getValues()[1])
     # end_w = (10,7) # (Pose_X, Pose_Y) in meters
-    end_w = (-6.9, -9.3)
+    end_w = (10,7)
 
     def world_to_map(world_x, world_y):
         # map_x = int((world_x + 12) * 30)
@@ -129,6 +138,7 @@ if mode == 'planner':
         :param end: A tuple of indices representing the end cell in the map
         :return: A list of tuples as a path from the given start to the given end in the given maze
         '''
+        
         if path_planner_map[start_planner[0], start_planner[1]] != 0:
             print("Start is not traversable")
             return []
@@ -177,7 +187,8 @@ if mode == 'planner':
                     priority = new_cost + heuristic(neighbor, end_planner)
                     heapq.heappush(open, (priority, new_cost, neighbor))
                     prev_location[neighbor] = current
-        return []
+        
+        return [end_planner]
     
     # Part 2.1: Load map (map.npy) from disk and visualize it
     map = np.load("map.npy")
@@ -191,7 +202,7 @@ if mode == 'planner':
     # Part 2.2: Compute an approximation of the “configuration space”
     configured_map = np.zeros(map.shape)
     obstacle_detected = np.argwhere(map>0)
-    footprint_radius = 4
+    footprint_radius = 8
     for x, y in obstacle_detected:
         x_min, x_max = max(0, x - footprint_radius), min(map.shape[0], x + footprint_radius)
         y_min, y_max = max(0, y - footprint_radius), min(map.shape[1], y + footprint_radius)
@@ -273,6 +284,7 @@ if mode == 'picknplace':
     #   
     pass
 robot_semi_state = 0
+run_start=True
 while robot.step(timestep) != -1 and mode != 'planner':
 
     ###################
@@ -381,6 +393,9 @@ while robot.step(timestep) != -1 and mode != 'planner':
             vL *= 0.75
             vR *= 0.75
     elif mode=='autonomous': # not manual mode
+        # if run_start and robot.time()>1: 
+        #     time.sleep(5)
+        #     run_start = False
         # Part 3.2: Feedback controller
         #STEP 1: Calculate the error
         x_goal, y_goal=waypoints[index]
@@ -406,8 +421,10 @@ while robot.step(timestep) != -1 and mode != 'planner':
         # (Keep the wheel speeds a bit less than the actual platform MAX_SPEED to minimize jerk)
         # vL=max(min(0.5*alpha+2*rho, MAX_SPEED-3),-MAX_SPEED+4)
         # vR=max(min(-0.5*alpha+2*rho, MAX_SPEED-3),-MAX_SPEED+4)
-        vL=max(min(2.5*alpha+6*rho, MAX_SPEED),-MAX_SPEED)
-        vR=max(min(-2.5*alpha+6*rho, MAX_SPEED),-MAX_SPEED)
+        # vL=max(min(-2.5*alpha+6*rho, MAX_SPEED),-MAX_SPEED)
+        # vR=max(min(2.5*alpha+6*rho, MAX_SPEED),-MAX_SPEED)
+        vL=max(min(-12*alpha+12.56*rho, MAX_SPEED*0.5),-MAX_SPEED*0.5)
+        vR=max(min(12*alpha+12.56*rho, MAX_SPEED*0.5),-MAX_SPEED*0.5)
         theta_goal_orientation = np.arctan2(y_next - y_goal, x_next - x_goal)
         eta = theta_goal_orientation - pose_theta
         eta = (eta + np.pi) % (2 * np.pi) - np.pi
