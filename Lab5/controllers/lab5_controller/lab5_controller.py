@@ -423,7 +423,7 @@ def calculateIk(offset_target,  orient=True, orientation_mode="Y", target_orient
     initial_position = get_bounded_initial_position()
     #initial_position = [0, 0, 0, 0] + [m.getPositionSensor().getValue() for m in motors] +[0, 0, 0] #
     print(initial_position)
-    
+
     #Calculate IK
     ikResults = my_chain.inverse_kinematics(offset_target, initial_position=initial_position,  target_orientation = [0,0,1], orientation_mode="Y")
 
@@ -614,22 +614,22 @@ while robot.step(timestep) != -1 and mode != 'planner':
         #     run_start = False
         # Part 3.2: Feedback controller
         #STEP 1: Calculate the error
-        # x_goal, y_goal=waypoints[index]
-        # rho=np.sqrt((x_goal - pose_x) ** 2 + (y_goal - pose_y) ** 2)  # Distance to the goal
-        # theta_g = np.arctan2(y_goal - pose_y, x_goal - pose_x)  # Angle to the goal
-        # alpha = theta_g - pose_theta  # Difference from robot's heading
-        # if alpha<-np.pi:
-        #     alpha += 2*np.pi
-        # if index < len(waypoints) - 1:
-        #     x_next, y_next = waypoints[index + 1]
-        # else:
-        #     print("Goal reached")
-        #     vL=0
-        #     vR=0
-        # # print("x_next:", x_next, "y_next: ", y_next)
-        # print("rho:", rho, "theta_g: ", theta_g, "alpha: ", alpha)
-        # print("x_goal: ", x_goal, "y_goal: ", y_goal)
-        # print("index: ", index)
+        x_goal, y_goal=waypoints[index]
+        rho=np.sqrt((x_goal - pose_x) ** 2 + (y_goal - pose_y) ** 2)  # Distance to the goal
+        theta_g = np.arctan2(y_goal - pose_y, x_goal - pose_x)  # Angle to the goal
+        alpha = theta_g - pose_theta  # Difference from robot's heading
+        if alpha<-np.pi:
+            alpha += 2*np.pi
+        if index < len(waypoints) - 1:
+            x_next, y_next = waypoints[index + 1]
+        else:
+            print("Goal reached")
+            vL=0
+            vR=0
+        # print("x_next:", x_next, "y_next: ", y_next)
+        print("rho:", rho, "theta_g: ", theta_g, "alpha: ", alpha)
+        print("x_goal: ", x_goal, "y_goal: ", y_goal)
+        print("index: ", index)
         # # Normalize wheelspeed
         # # (Keep the wheel speeds a bit less than the actual platform MAX_SPEED to minimize jerk)
         # # vL=max(min(0.5*alpha+2*rho, MAX_SPEED-3),-MAX_SPEED+4)
@@ -688,19 +688,19 @@ while robot.step(timestep) != -1 and mode != 'planner':
         #                 vR=0
         #             robot_semi_state = 0
         print("vL:", vL, "vR: ", vR)
-        print("dx: ", dx, "dy: ", dy)
-        if rho < 0.1:
-            state += 1
-            if state >= len(waypoints):
-                state = 0
-                vL=0
-                vR=0
-        # if rho<0.25: 
-        #     if index < len(waypoints) - 1: index += 1
-        #     else: 
-        #         print("Goal reached")
+        # print("dx: ", dx, "dy: ", dy)
+        # if rho < 0.1:
+        #     state += 1
+        #     if state >= len(waypoints):
+        #         state = 0
         #         vL=0
         #         vR=0
+        if rho<0.25: 
+            if index < len(waypoints) - 1: index += 1
+            else: 
+                print("Goal reached")
+                vL=0
+                vR=0
         # vL = 0
         # vR = 0
 
