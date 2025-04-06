@@ -61,7 +61,7 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/chairs/protos/Chair.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/fruits/protos/FruitBowl.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/fruits/protos/Apple.proto"
-EXTERNPROTO "./protos/Orange.proto"
+EXTERNPROTO "D:/csci3302/CSCI-3302-Labs/Lab5/worlds/protos/Orange.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/drinks/protos/BeerBottle.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/drinks/protos/Can.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/living_room_furniture/protos/Armchair.proto"
@@ -284,8 +284,8 @@ Tiago {
   controller "lab5_controller"
   cameraSlot [
     Display {
-      width 300
-      height 300
+      width 360
+      height 360
     }
     Camera {
       rotation 1 0 0 -1.5708003061004252
@@ -313,7 +313,6 @@ Tiago {
   ]
   lidarSlot [
     RangeFinder {
-      name "RangeFinder"
       physics Physics {
       }
     }
