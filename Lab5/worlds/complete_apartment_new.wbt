@@ -1,4 +1,4 @@
-#VRML_SIM R2025a utf8
+#VRML_SIM R2023b utf8
 
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/objects/backgrounds/protos/TexturedBackground.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2023b/projects/appearances/protos/Roughcast.proto"
@@ -92,8 +92,8 @@ WorldInfo {
   basicTimeStep 16
 }
 Viewpoint {
-  orientation -0.5773502691896258 0.5773502691896258 0.5773502691896258 2.0944
-  position -8.233656945397197 -4.876857686488709 26.457777412052458
+  orientation -0.40175928147534723 0.09423877984188161 0.9108833800889805 2.720606570712303
+  position 6.860472055182692 -11.825103472613597 19.71018105642116
   exposure 0.5
   ambientOcclusionRadius 1
 }
