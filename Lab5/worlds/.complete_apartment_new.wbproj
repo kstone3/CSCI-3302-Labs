@@ -8,8 +8,8 @@ renderingMode: PLAIN
 orthographicViewHeight: 1
 textFiles: -1
 consoles: Console:All:All
-renderingDevicePerspectives: TIAGo:camera;1;3.3125;0;0
+renderingDevicePerspectives: TIAGo:RangeFinder;0;3.25;0;0
+renderingDevicePerspectives: TIAGo:camera;1;2.8125;0.00348025;0.0115373
 renderingDevicePerspectives: TIAGo:display;1;0.693333;0;0
-renderingDevicePerspectives: TIAGo:range-finder;0;3.25;0;0
 renderingDevicePerspectives: laptop:display;0;0.335484;0;0.282497
 renderingDevicePerspectives: television:display;0;1;0;0

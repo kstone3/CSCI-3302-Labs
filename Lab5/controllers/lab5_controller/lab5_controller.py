@@ -37,8 +37,7 @@ part_names = ("head_2_joint", "head_1_joint", "torso_lift_joint", "arm_1_joint",
 
 # All motors except the wheels are controlled by position control. The wheels
 # are controlled by a velocity controller. We therefore set their position to infinite.
-target_pos = (0.0000, 0.01, 0.09, 0.073, 1.02, -3.16, 1.27, 1.32, 0.0, 1.41, 0, 0)
-#target_pos = (0.0, 0.0, 0.09, 0.07, 1.02, -3.16, 1.27, 1.32, 0.0, 1.41, 'inf', 'inf')
+target_pos = (0.0, 0.0, 0.09, 0.07, 1.02, -3.16, 1.27, 1.32, 0.0, 1.41, 'inf', 'inf')
 robot_parts=[]
 
 base_elements=["base_link", "base_link_Torso_joint", "Torso", "torso_lift_joint", "torso_lift_link", "torso_lift_link_TIAGo front arm_11367_joint", "TIAGo front arm_11367"]
@@ -89,8 +88,8 @@ for _ in range (100):
 # The Tiago robot has a couple more sensors than the e-Puck
 # Some of them are mentioned below. We will use its LiDAR for Lab 5
 
-range = robot.getDevice('range-finder')
-range.enable(timestep)
+range_finder = robot.getDevice("RangeFinder")
+range_finder.enable(timestep)
 camera = robot.getDevice("camera")
 camera.enable(timestep)
 camera.recognitionEnable(timestep)
@@ -144,17 +143,16 @@ fix_map=False
 if mode == 'planner':
     print("Planning route ...")
     # Part 2.3: Provide start and end in world coordinate frame and convert it to map's frame
-    #start_w = (-7.97,-4.84) # (Pose_X, Pose_Y) in meters
+    start_w = (-7.97,-4.84) # (Pose_X, Pose_Y) in meters
     #start_w=(-7.1,-5.3)
-    start_w = (-5, -4.8)
+    #test1: start_w = (-3, -3.3)
     #test2: start_w = (-8.5, -2)
     # while np.any(np.isnan(gps.getValues())):
     #     robot.step(timestep)
     #     print("Waiting for GPS signal")
     # start_w=(gps.getValues()[0]-1,gps.getValues()[1])
-    end_w = (10,7) # (Pose_X, Pose_Y) in meters
-    #end_w = (-3.2,-7.5)
-    #
+    # end_w = (10,7) # (Pose_X, Pose_Y) in meters
+    end_w = (10,7)
 
     def world_to_map(world_x, world_y):
         # map_x = int((world_x + 12) * 30)
@@ -312,8 +310,8 @@ def getTargetFromObject(recognized_objects):
     target = recognized_objects[0].getPosition()
 
     # Convert camera coordinates to IK/Robot coordinates
-    offset_target = [-(target[2])+0.22, -target[0]+0.08, (target[1])+0.97+0.2]
-    #offset_target = [-(target[2])+0.22, -target[0]+0.06, (target[1])+0.97+0.2]
+    # offset_target = [-(target[2])+0.22, -target[0]+0.08, (target[1])+0.97+0.2]
+    offset_target = [-(target[2])+0.22, -target[0]+0.06, (target[1])+0.97+0.2]
 
     return offset_target
 
@@ -334,11 +332,11 @@ def checkArmAtPosition(ikResults, cutoff=0.00005):
     '''Checks if arm at position, given ikResults'''
     
     # Get the initial position of the motors
-    initial_position = [0,0,0,0] + [m.getPositionSensor().getValue() for m in motors] + [0,0,0]
+    initial_position = [0,0,0,0] + [m.getPositionSensor().getValue() for m in motors] + [0,0,0,0]
 
     # Calculate the arm
     arm_error = 0
-    for item in __builtins__.range(14):
+    for item in range(14):
         arm_error += (initial_position[item] - ikResults[item])**2
     arm_error = math.sqrt(arm_error)
 
@@ -363,107 +361,83 @@ def calculateIk(offset_target,  orient=True, orientation_mode="Y", target_orient
     rtype: bool
         returns: whether or not the arm is at the target
     '''
-    # Get the number of links in the chain
-    num_links = len(my_chain.links)
-    # for link in my_chain.links:
-    #     link.bounds = (-float('inf'), float('inf'))  # Remove bounds
-    #Create initial position array with the correct size
-    # def bound_joint_values(initial_pos, bounds):
-    #     return [max(min(val, ub), lb) for val, (lb, ub) in zip(initial_pos, bounds)]
-    # def get_bounded_initial_position():
-    #     initial_position = [0, 0, 0, 0] + [m.getPositionSensor().getValue() for m in motors] +[0, 0, 0]
-    #     bounds = [
-    #         (-float('inf'), float('inf')),  # 0
-    #         (-float('inf'), float('inf')),  # 1
-    #         (0.0, 0.35),                    # 2
-    #         (-float('inf'), float('inf')),  # 3
-    #         (0.07, 2.68),                   # 4 
-    #         (-1.5, 1.02),                   # 5 
-    #         (-3.46, 1.5),                   # 6
-    #         (-0.32, 2.29),                  # 7 
-    #         (-2.07, 2.07),                  # 8 
-    #         (-1.39, 1.39),                  # 9 
-    #         (-2.07, 2.07),                  # 10 
-    #         (-float('inf'), float('inf')),  # 11
-    #         (-float('inf'), float('inf')),  # 12
-    #         (0.0, 0.045),                   # 13
-    #     ]
+    # # Get the number of links in the chain
+    # num_links = len(my_chain.links)
 
-    #     return bound_joint_values(initial_position, bounds)
-    
-    # initial_position = get_bounded_initial_position()
-    initial_position = [0] * num_links
-    #initial_position = [0, 0, 0, 0] + [m.getPositionSensor().getValue() for m in motors] +[0, 0, 0]
+    # # Create initial position array with the correct size
+    # initial_position = [0] * num_links
+    # #initial_position = [0, 0, 0, 0] + [m.getPositionSensor().getValue() for m in motors] +[0, 0, 0]
 
-    # Map each motor to its corresponding link position
-    motor_idx = 0
-    for i in __builtins__.range(num_links):
-        link_name = my_chain.links[i].name
-        if link_name in part_names and link_name != "torso_lift_joint":
-            if motor_idx < len(motors):
-                initial_position[i] = motors[motor_idx].getPositionSensor().getValue()
-                motor_idx += 1
-        # Calculate IK
-    ikResults = my_chain.inverse_kinematics(
-        offset_target, 
-        initial_position=initial_position,
-        target_orientation=target_orientation, 
-        orientation_mode=orientation_mode
-    )
+    # # Map each motor to its corresponding link position
+    # motor_idx = 0
+    # for i in range(num_links):
+    #     link_name = my_chain.links[i].name
+    #     if link_name in part_names and link_name != "torso_lift_joint":
+    #         if motor_idx < len(motors):
+    #             initial_position[i] = motors[motor_idx].getPositionSensor().getValue()
+    #             motor_idx += 1
 
-    # Validate result
-    position = my_chain.forward_kinematics(ikResults)
-    squared_distance = math.sqrt(
-        (position[0, 3] - offset_target[0])**2 + 
-        (position[1, 3] - offset_target[1])**2 + 
-        (position[2, 3] - offset_target[2])**2
-    )
-    print(f"IK calculated with error - {squared_distance}")
+    # # Calculate IK
+    # ikResults = my_chain.inverse_kinematics(
+    #     offset_target, 
+    #     initial_position=initial_position,
+    #     target_orientation=target_orientation, 
+    #     orientation_mode=orientation_mode
+    # )
 
-    return ikResults
+    # # Validate result
+    # position = my_chain.forward_kinematics(ikResults)
+    # squared_distance = math.sqrt(
+    #     (position[0, 3] - offset_target[0])**2 + 
+    #     (position[1, 3] - offset_target[1])**2 + 
+    #     (position[2, 3] - offset_target[2])**2
+    # )
+    # print(f"IK calculated with error - {squared_distance}")
+
+    # return ikResults
 
     #Get the initial position of the motors
-    # def bound_joint_values(initial_pos, bounds):
-    #     return [max(min(val, ub), lb) for val, (lb, ub) in zip(initial_pos, bounds)]
-    # def get_bounded_initial_position():
-    #     initial_position = [0, 0, 0, 0] + [m.getPositionSensor().getValue() for m in motors] +[0, 0, 0]
-    #     bounds = [
-    #         (-float('inf'), float('inf')),  # 0
-    #         (-float('inf'), float('inf')),  # 1
-    #         (0.0, 0.35),                    # 2
-    #         (-float('inf'), float('inf')),  # 3
-    #         (0.07, 2.68),                   # 4 
-    #         (-1.5, 1.02),                   # 5 
-    #         (-3.46, 1.5),                   # 6
-    #         (-0.32, 2.29),                  # 7 
-    #         (-2.07, 2.07),                  # 8 
-    #         (-1.39, 1.39),                  # 9 
-    #         (-2.07, 2.07),                  # 10 
-    #         (-float('inf'), float('inf')),  # 11
-    #         (-float('inf'), float('inf')),  # 12
-    #         (0.0, 0.045),                   # 13
-    #     ]
+    def bound_joint_values(initial_pos, bounds):
+        return [max(min(val, ub), lb) for val, (lb, ub) in zip(initial_pos, bounds)]
+    def get_bounded_initial_position():
+        initial_position = [0, 0, 0, 0] + [m.getPositionSensor().getValue() for m in motors] +[0, 0, 0]
+        bounds = [
+            (-float('inf'), float('inf')),  # 0
+            (-float('inf'), float('inf')),  # 1
+            (0.0, 0.35),                    # 2
+            (-float('inf'), float('inf')),  # 3
+            (0.07, 2.68),                   # 4 
+            (-1.5, 1.02),                   # 5 
+            (-3.46, 1.5),                   # 6
+            (-0.32, 2.29),                  # 7 
+            (-2.07, 2.07),                  # 8 
+            (-1.39, 1.39),                  # 9 
+            (-2.07, 2.07),                  # 10 
+            (-float('inf'), float('inf')),  # 11
+            (-float('inf'), float('inf')),  # 12
+            (0.0, 0.045),                   # 13
+        ]
 
-    #     return bound_joint_values(initial_position, bounds)
+        return bound_joint_values(initial_position, bounds)
     
-    # #initial_position = get_bounded_initial_position()
-    # initial_position = [0, 0, 0, 0] + [m.getPositionSensor().getValue() for m in motors] +[0, 0, 0] 
-    # print(initial_position)
+    initial_position = get_bounded_initial_position()
+    #initial_position = [0, 0, 0, 0] + [m.getPositionSensor().getValue() for m in motors] +[0, 0, 0] #
+    print(initial_position)
 
-    # #Calculate IK
-    # ikResults = my_chain.inverse_kinematics(offset_target, initial_position=initial_position,  target_orientation = [0,0,1], orientation_mode="Y")
+    #Calculate IK
+    ikResults = my_chain.inverse_kinematics(offset_target, initial_position=initial_position,  target_orientation = [0,0,1], orientation_mode="Y")
 
-    # # Use FK to calculate squared_distance error
-    # position = my_chain.forward_kinematics(ikResults)
+    # Use FK to calculate squared_distance error
+    position = my_chain.forward_kinematics(ikResults)
 
-    # # This is not currently used other than as a debug measure...
-    # squared_distance = math.sqrt((position[0, 3] - offset_target[0])**2 + (position[1, 3] - offset_target[1])**2 + (position[2, 3] - offset_target[2])**2)
-    # print("IK calculated with error - {}".format(squared_distance))
+    # This is not currently used other than as a debug measure...
+    squared_distance = math.sqrt((position[0, 3] - offset_target[0])**2 + (position[1, 3] - offset_target[1])**2 + (position[2, 3] - offset_target[2])**2)
+    print("IK calculated with error - {}".format(squared_distance))
 
-    # # Reset the ikTarget (deprec)
-    # # ikTarget = offset_target
+    # Reset the ikTarget (deprec)
+    # ikTarget = offset_target
     
-    # return ikResults
+    return ikResults
     
     # Legacy code for visualizing
         # import matplotlib.pyplot
@@ -476,7 +450,7 @@ vrb = True
 def moveArmToTarget(ikResults):
     '''Moves arm given ikResults'''
     # Set the robot motors
-    for res in __builtins__.range(len(ikResults)):
+    for res in range(len(ikResults)):
         if my_chain.links[res].name in part_names:
             # This code was used to wait for the trunk, but now unnecessary.
             # if abs(initial_position[2]-ikResults[2]) < 0.1 or res == 2:
@@ -500,42 +474,6 @@ def closeGrip():
     # else:
     #     return True
 
-def reachArm(target, previous_target, ikResults, cutoff=0.00005):
-    '''
-    This code is used to reach the arm over an object and pick it up.
-    '''
-
-    # Calculate the error using the ikTarget
-    error = 0
-    ikTargetCopy = previous_target
-
-    # Make sure ikTarget is defined
-    if previous_target is None:
-        error = 100
-    else:
-        for item in range(3):
-            error += (target[item] - previous_target[item])**2
-        error = math.sqrt(error)
-
-    
-    # If error greater than margin
-    if error > 0.05:
-        print("Recalculating IK, error too high {}...".format(error))
-        ikResults = calculateIk(target)
-        ikTargetCopy = target
-        moveArmToTarget(ikResults)
-
-    # Exit Condition
-    if checkArmAtPosition(ikResults, cutoff=cutoff):
-        if vrb:
-            print("NOW SWIPING")
-        return [True, ikTargetCopy, ikResults]
-    else:
-        if vrb:
-            print("ARM NOT AT POSITION")
-
-    # Return ikResults
-    return [False, ikTargetCopy, ikResults]
 
 if mode == 'picknplace':
     # Part 4: Use the function calls from lab5_joints using the comments provided there
@@ -547,11 +485,11 @@ if mode == 'picknplace':
     # end = world_to_map(end_ws[0], end_ws[1]) # (x, y) in 360x360 map
     target = "orange"
     while robot.step(timestep) != -1:
-        recognized_obj = camera.getRecognitionObjects() 
+        recognized_obj = camera.getRecognitionObjects()
         # print("recognized:", recognized_obj)
         if lookForTarget(recognized_obj) == True: 
             target_pos = getTargetFromObject(recognized_obj)
-            print("target_pos:", target_pos)
+            # print("target_pos:", target_pos)
             Ikresult = calculateIk(target_pos)
             print("IK: ", Ikresult)
             moveArmToTarget(Ikresult)
