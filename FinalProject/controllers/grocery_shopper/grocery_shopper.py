@@ -5,7 +5,10 @@
 from controller import Robot, Motor, Camera, RangeFinder, Lidar, Keyboard
 import math
 import numpy as np
-import matplotlib.pyplot as plt
+from matplotlib import pyplot as plt
+import heapq
+import random
+import scipy.ndimage
 
 #Initialization
 print("=== Initializing Grocery Shopper...")
@@ -73,6 +76,250 @@ lidar.enablePointCloud()
 # Enable display
 display = robot.getDevice("display")
 
+def a_star(path_planner_map, start_planner, end_planner):
+    '''
+    :param path_planner_map: A 2D numpy array of size 360x360 representing the world's cspace with 0 as free space and 1 as obstacle
+    :param start_planner: A tuple of indices representing the start cell in the map
+    :param end_planner: A tuple of indices representing the end cell in the map
+    :return: A list of tuples as a path from the given start to the given end in the given maze
+    '''
+    
+    if path_planner_map[start_planner[0], start_planner[1]] != 0:
+        print("Start is not traversable")
+        return []
+    if path_planner_map[end_planner[0], end_planner[1]] != 0:
+        print("End is not traversable")
+        return []
+    
+    def heuristic(a, b):
+        return math.sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2)
+
+    def get_neighbors(cell):
+        neighbors = []
+        for dx in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                if dx == 0 and dy == 0:
+                    continue
+                nx = cell[0] + dx
+                ny = cell[1] + dy
+                if 0 <= nx < path_planner_map.shape[0] and 0 <= ny < path_planner_map.shape[1] and path_planner_map[nx, ny] == 0:
+                    neighbors.append((nx, ny))
+        return neighbors
+
+    def move_cost(current, neighbor):
+        return math.sqrt(2) if current[0] != neighbor[0] and current[1] != neighbor[1] else 1
+
+    open = []
+    heapq.heappush(open, (heuristic(start_planner, end_planner), 0, start_planner))
+    prev_location = {}
+    current_cost = {start_planner: 0}
+    
+    while open:
+        current_priority, cost, current = heapq.heappop(open)
+        if current == end_planner:  # Changed from 'end' to 'end_planner'
+            path = []
+            while current != start_planner:
+                path.append(current)
+                current = prev_location[current]
+            path.append(start_planner)
+            path.reverse()
+            return path
+        
+        for neighbor in get_neighbors(current):
+            new_cost = current_cost[current] + move_cost(current, neighbor)
+            if neighbor not in current_cost or new_cost < current_cost[neighbor]:
+                current_cost[neighbor] = new_cost
+                priority = new_cost + heuristic(neighbor, end_planner)
+                heapq.heappush(open, (priority, new_cost, neighbor))
+                prev_location[neighbor] = current
+    return [end_planner]
+
+
+
+class Node:
+    """
+    Node for RRT/RRT* Algorithm. This is what you'll make your graph with!
+    """
+    def __init__(self, pt, parent=None):
+        self.point = pt # n-Dimensional point
+        self.parent = parent # Parent node
+        self.path_from_parent = [] # List of points along the way from the parent node (for visualization)
+        
+def get_random_valid_vertex(state_valid, bounds, obstacles):
+    vertex = None
+    while vertex is None: # Get starting vertex
+        pt = np.random.rand(bounds.shape[0]) * (bounds[:,1]-bounds[:,0]) + bounds[:,0]
+        if state_valid(pt):
+            vertex = pt
+    return vertex
+
+def get_nearest_vertex(node_list, q_point):
+    '''
+    @param node_list: List of Node objects
+    @param q_point: n-dimensional array representing a point
+    @return Node in node_list with closest node.point to query q_point
+    '''
+    # TODO: Your Code Here
+    nearest_vertex=node_list[0]
+    min_dist=np.linalg.norm(q_point-nearest_vertex.point)
+    for node in node_list:
+        dist=np.linalg.norm(q_point-node.point)
+        if dist<min_dist:
+            nearest_vertex=node
+            min_dist=dist
+    return nearest_vertex
+
+def steer(from_point, to_point, delta_q):
+    '''
+    @param from_point: n-Dimensional array (point) where the path to "to_point" is originating from (e.g., [1.,2.])
+    @param to_point: n-Dimensional array (point) indicating destination (e.g., [0., 0.])
+    @param delta_q: Max path-length to cover, possibly resulting in changes to "to_point" (e.g., 0.2)
+    @returns path: list of points leading from "from_point" to "to_point" (inclusive of endpoints)  (e.g., [ [1.,2.], [1., 1.], [0., 0.] ])
+    '''
+
+    path = []
+
+    # TODO: Figure out if you can use "to_point" as-is, or if you need to move it so that it's only delta_q distance away
+    from_pt=np.array(from_point)
+    to_pt=np.array(to_point)
+    dir=to_pt-from_pt
+    dist=np.linalg.norm(dir)
+    if dist>delta_q: to_pt=from_pt+(dir/dist)*delta_q
+    path=np.linspace(from_pt,to_pt,num=10)
+    path[0]=from_pt
+    path[-1]=to_pt
+    return path.tolist()
+
+def rrt_star(state_bounds, obstacles, state_is_valid, starting_point, goal_point, k, delta_q):
+    '''
+    TODO: Implement the RRT* algorithm here, making use of the provided state_is_valid function
+
+    @param state_bounds: matrix of min/max values for each dimension (e.g., [[0,1],[0,1]] for a 2D 1m by 1m square)
+    @param state_is_valid: function that maps states (N-dimensional Real vectors) to a Boolean (indicating free vs. forbidden space)
+    @param k: Number of points to sample
+    @param delta_q: Maximum distance allowed between vertices
+    @returns List of RRT* graph nodes
+    '''
+
+    node_list = []
+    start_node=Node(starting_point,parent=None)
+    start_node.cost=0.0
+    node_list.append(start_node)
+    neighbor_radius=0.2  
+    goal_bias=0.10
+    for i in range(k):
+        if goal_point is not None and random.random()<goal_bias: q_rand=goal_point
+        else: q_rand=get_random_valid_vertex(state_is_valid,state_bounds,obstacles)
+        nearest_node = get_nearest_vertex(node_list,q_rand)
+        if not hasattr(nearest_node,'cost'): nearest_node.cost=0
+        new_path=steer(nearest_node.point,q_rand,delta_q)
+        q_new=np.array(new_path[-1])
+        valid=True
+        for pt in new_path:
+            if not state_is_valid(np.array(pt)):
+                valid = False
+                break
+        if not valid: continue
+        new_node=Node(q_new,parent=nearest_node)
+        new_node.path_from_parent=new_path
+        new_node.cost=nearest_node.cost+np.linalg.norm(q_new-nearest_node.point)
+        node_list.append(new_node)
+        neighbors=[]
+        for node in node_list:
+            dist=np.linalg.norm(node.point-new_node.point)
+            if dist<=neighbor_radius:
+                path_test=steer(node.point,new_node.point,delta_q)
+                path_valid=True
+                for p in path_test:
+                    if not state_is_valid(np.array(p)):
+                        path_valid = False
+                        break
+                if path_valid:
+                    if not hasattr(node,'cost'): node.cost=0
+                    neighbors.append(node)
+        best_parent=new_node.parent
+        best_cost=new_node.cost
+        best_path=new_node.path_from_parent
+        for nbr in neighbors:
+            path_test=steer(nbr.point,new_node.point,delta_q)
+            path_valid=True
+            for p in path_test:
+                if not state_is_valid(np.array(p)):
+                    path_valid=False
+                    break
+            if not path_valid: continue
+            cost_through_nbr=nbr.cost+np.linalg.norm(new_node.point-nbr.point)
+            if cost_through_nbr<best_cost:
+                best_parent=nbr
+                best_cost=cost_through_nbr
+                best_path=path_test
+        new_node.parent=best_parent
+        new_node.path_from_parent=best_path
+        new_node.cost=best_cost
+        for nbr in neighbors:
+            if nbr==new_node.parent: continue
+            path_test=steer(new_node.point,nbr.point,delta_q)
+            path_valid=True
+            for p in path_test:
+                if not state_is_valid(np.array(p)):
+                    path_valid=False
+                    break
+            if not path_valid: continue
+            cost_through_new=new_node.cost+np.linalg.norm(nbr.point-new_node.point)
+            if cost_through_new<nbr.cost:
+                nbr.parent=new_node
+                nbr.path_from_parent=path_test
+                nbr.cost=cost_through_new
+        if goal_point is not None and np.linalg.norm(new_node.point-np.array(goal_point))<1e-5:
+            print("Goal reached (RRT*)")
+            return node_list
+    return node_list
+
+def compute_control(current_pose, waypoint):
+    # current_pose: (pose_x, pose_y, pose_theta)
+    # waypoint: np.array([wx, wy])
+    dx = waypoint[0] - current_pose[0]
+    dy = waypoint[1] - current_pose[1]
+    desired_angle = math.atan2(dy, dx)
+    angle_error = desired_angle - current_pose[2]
+    # Normalize the angle to [-pi, pi]
+    angle_error = math.atan2(math.sin(angle_error), math.cos(angle_error))
+    # Distance to the waypoint
+    distance = math.hypot(dx, dy)
+    return distance, angle_error
+
+def grid_to_world(cell, scale_x, scale_y):
+    row, col = cell
+    wx = col / scale_x - 14
+    wy = 7 - row / scale_y
+    return np.array([wx, wy])
+
+def choose_frontier(robot_cell, frontiers):
+    if not frontiers:
+        return None
+    r_robot, c_robot = robot_cell
+    min_dist = float('inf')
+    best = None
+    for cell in frontiers:
+        dr = cell[0] - r_robot
+        dc = cell[1] - c_robot
+        dist = math.hypot(dr, dc)
+        if dist < min_dist:
+            min_dist = dist
+            best = cell
+    return best
+
+def detect_frontiers(binary_map):
+    # Create a 3x3 kernel that sums neighbor values.
+    kernel = np.ones((3, 3))
+    # Convolve the binary map to get the sum of neighbors
+    neighbor_sum = scipy.ndimage.convolve(binary_map, kernel, mode='constant', cval=0)
+    # Define frontiers as free/unknown cells that have at least one neighbor that is also free/unknown.
+    frontiers = list(zip(*np.where((binary_map == 0) & (neighbor_sum < 9))))
+    return frontiers
+
+
+
 # Odometry
 pose_x     = 0
 pose_y     = 0
@@ -87,7 +334,12 @@ lidar_offsets = lidar_offsets[83:len(lidar_offsets)-83] # Only keep lidar readin
 
 map = None
 map = np.zeros(shape=[360,360])
-state="manual_map"
+state="auto_map"
+current_path_world = []  # List of waypoints (in world coords)
+current_waypoint_index = 0
+# Define the planning update frequency (e.g., every 50 timesteps)
+planning_interval = 100  
+planning_counter = 100
 
 # ------------------------------------------------------------------
 # Helper Functions
@@ -102,8 +354,8 @@ while robot.step(timestep) != -1:
     pose_y = gps.getValues()[1]
     
     n = compass.getValues()
-    rad = -((math.atan2(n[0], n[2]))-1.5708)
-    # rad = -((math.atan2(n[0], n[2]))-np.pi)
+    # rad = -((math.atan2(n[0], n[2]))-1.5708)
+    rad = -((math.atan2(n[0], n[2]))-np.pi)
     pose_theta = rad
 
     lidar_sensor_readings = lidar.getRangeImage()
@@ -126,30 +378,30 @@ while robot.step(timestep) != -1:
         # Convert detection from robot coordinates into world coordinates
         # Convert detection from robot coordinates into world coordinates
         # Convert detection from robot coordinates into world coordinates
+        # Convert detection from robot coordinates into world coordinates
         wx = math.cos(t)*rx - math.sin(t)*ry + pose_x
         wy = math.sin(t)*rx + math.cos(t)*ry + pose_y
 
-        # Clamp world coordinates to within [-12, 12] with a small epsilon
-        wx = max(min(wx, 12 - 1e-3), -12 + 1e-3)
-        wy = max(min(wy, 12 - 1e-3), -12 + 1e-3)
+        # Instead of clamping to [-12, 12], adjust to the new bounds:
+        wx = max(min(wx, 14 - 1e-3), -14 + 1e-3)
+        wy = max(min(wy, 7 - 1e-3), -7 + 1e-3)
 
         if rho < LIDAR_SENSOR_MAX_RANGE:
-            scale = 15  # 360 pixels / 24 m = 15 pixels per meter
-            # Compute column (x coordinate) and row (y coordinate)
-            col = int((wx + 12) * scale)
-            row = int((12 - wy) * scale)
-            # Clamp indices to stay within the map array
+            # Compute scale factors based on the new extents:
+            scale_x = 360 / 28.0   # ~12.857 pixels per meter for x
+            scale_y = 360 / 14.0   # ~25.714 pixels per meter for y
+            
+            # Map world coordinates to grid indices
+            col = int((wx + 14) * scale_x)
+            row = int((7 - wy) * scale_y)
+            
+            # Clamp the indices so they remain in the [0, 359] range
             col = min(max(col, 0), 359)
             row = min(max(row, 0), 359)
             
-            # Write to the map array using [row, column]
-            map[row, col] += 5e-3
+            # Make sure you index as map[row, col] (i.e., [y, x])
+            map[row, col] += 5e3
 
-
-    
-    
-    robot_parts["wheel_left_joint"].setVelocity(vL)
-    robot_parts["wheel_right_joint"].setVelocity(vR)
     
     if(gripper_status=="open"):
         # Close gripper, note that this takes multiple time steps...
@@ -202,3 +454,75 @@ while robot.step(timestep) != -1:
         else: # slow down
             vL *= 0.75
             vR *= 0.75
+            
+    if state == "auto_map":
+        # Increment the planning counter each simulation step
+        planning_counter += 1
+
+        # Convert your occupancy grid to a binary occupancy map
+        binary_map = (map > 0.5).astype(np.uint8)
+        # Compute the robot's current grid cell using your scale factors:
+        scale_x = 360 / 28.0
+        scale_y = 360 / 14.0
+        r_robot = int((7 - pose_y) * scale_y)
+        c_robot = int((pose_x + 14) * scale_x)
+        robot_cell = (r_robot, c_robot)
+
+        # Only perform expensive frontier detection and A* planning at the defined interval.
+        if planning_counter >= planning_interval:
+            np.save("map.npy", binary_map)
+            # print(map)
+            map_display=(binary_map*256**2+binary_map*256+binary_map)*255
+            plt.imshow(map_display.T,origin='upper')
+            plt.savefig("map.png")
+            print("Map file saved")
+            planning_counter = 0  # Reset the counter after planning
+
+            frontiers = detect_frontiers(binary_map)
+            goal_cell = choose_frontier(robot_cell, frontiers)
+            if goal_cell is not None:
+                path_grid = a_star(binary_map, robot_cell, goal_cell)
+                # Convert the grid path to world coordinates:
+                current_path_world = [grid_to_world(cell, scale_x, scale_y) for cell in path_grid]
+                current_waypoint_index = 0
+            else:
+                # No frontier found; exploration complete.
+                vL = 0
+                vR = 0
+                print("Exploration complete!")
+                break  # Optionally stop the controller
+
+        # Regardless of planning (which only updates every planning_interval steps),
+        # the robot continues to follow the most recent plan.
+        if current_path_world:
+            # Check whether we've exhausted the path
+            if current_waypoint_index >= len(current_path_world):
+                print("Reached the end of the current path. Replanning...")
+                current_path_world = []   # Clear the current path to trigger a replan next cycle.
+                current_waypoint_index = 0
+            else:
+                current_waypoint = current_path_world[current_waypoint_index]
+                distance, angle_error = compute_control((pose_x, pose_y, pose_theta), current_waypoint)
+                # Controller gains; adjust these as needed:
+                K_linear = 1.0
+                K_angular = 2.0
+                if abs(angle_error) > 0.1:
+                    vL = -K_angular * angle_error
+                    vR =  K_angular * angle_error
+                else:
+                    vL = K_linear * distance - K_angular * angle_error
+                    vR = K_linear * distance + K_angular * angle_error
+                # Proceed to next waypoint if close enough:
+                if distance < 0.1:
+                    current_waypoint_index += 1
+        # If we have reached our current waypoint or there is no valid path
+        # if not current_path_world or current_waypoint_index >= len(current_path_world):
+        #     planning_counter = planning_interval  # Force a replan on the next cycle.
+
+
+
+                
+    robot_parts["wheel_left_joint"].setVelocity(vL/5)
+    robot_parts["wheel_right_joint"].setVelocity(vR/5)
+    print("pose_x: ", pose_x, "pose_y: ", pose_y, "pose_theta: ", pose_theta)
+    print("vL: ", vL, "vR: ", vR)
