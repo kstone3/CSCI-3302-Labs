@@ -2,6 +2,7 @@
 
 # Apr 1, 2025
 
+import time
 from controller import Robot, Motor, Camera, RangeFinder, Lidar, Keyboard
 import math
 import numpy as np
@@ -9,6 +10,7 @@ from matplotlib import pyplot as plt
 import heapq
 import random
 import scipy.ndimage
+import drive_ik
 
 #Initialization
 print("=== Initializing Grocery Shopper...")
@@ -16,6 +18,7 @@ print("=== Initializing Grocery Shopper...")
 MAX_SPEED = 7.0  # [rad/s]
 MAX_SPEED_MS = 0.633 # [m/s]
 AXLE_LENGTH = 0.4044 # m
+RADIUS = MAX_SPEED_MS/MAX_SPEED*4
 MOTOR_LEFT = 10
 MOTOR_RIGHT = 11
 N_PARTS = 12
@@ -334,7 +337,7 @@ lidar_offsets = lidar_offsets[83:len(lidar_offsets)-83] # Only keep lidar readin
 
 map = None
 map = np.zeros(shape=[360,360])
-state="auto_map"
+state="manual_map"
 current_path_world = []  # List of waypoints (in world coords)
 current_waypoint_index = 0
 # Define the planning update frequency (e.g., every 50 timesteps)
@@ -350,20 +353,18 @@ print("=== Running Grocery Shopper...")
 # Main Loop
 while robot.step(timestep) != -1:
     
-    pose_x = gps.getValues()[0]
-    pose_y = gps.getValues()[1]
-    
-    n = compass.getValues()
-    # rad = -((math.atan2(n[0], n[2]))-1.5708)
-    rad = -((math.atan2(n[0], n[2]))-np.pi)
-    pose_theta = rad
+    pose_y = -gps.getValues()[1]
+    pose_x = -gps.getValues()[0]
 
+    print(f'x: {-gps.getValues()[0]} y: {-gps.getValues()[1]}')
+
+    n = compass.getValues()
+    rad = ((math.atan2(n[0], n[1])))
+    pose_theta = rad
+    
     lidar_sensor_readings = lidar.getRangeImage()
     lidar_sensor_readings = lidar_sensor_readings[83:len(lidar_sensor_readings)-83]
-
-    # vL=0
-    # vR=0
-
+    
     for i, rho in enumerate(lidar_sensor_readings):
         alpha = lidar_offsets[i]
 
@@ -371,36 +372,48 @@ while robot.step(timestep) != -1:
             continue
 
         # The Webots coordinate system doesn't match the robot-centric axes we're used to
-        rx = math.cos(alpha)*rho
-        ry = -math.sin(alpha)*rho
+        rx = -math.cos(alpha)*rho
+        ry = math.sin(alpha)*rho
 
-        t = pose_theta + np.pi/2.
-        # Convert detection from robot coordinates into world coordinates
-        # Convert detection from robot coordinates into world coordinates
-        # Convert detection from robot coordinates into world coordinates
-        # Convert detection from robot coordinates into world coordinates
-        wx = math.cos(t)*rx - math.sin(t)*ry + pose_x
-        wy = math.sin(t)*rx + math.cos(t)*ry + pose_y
 
-        # Instead of clamping to [-12, 12], adjust to the new bounds:
-        wx = max(min(wx, 14 - 1e-3), -14 + 1e-3)
-        wy = max(min(wy, 7 - 1e-3), -7 + 1e-3)
+        # Convert detection from robot coordinates into world coordinates
+        wx =  math.cos(pose_theta)*rx - math.sin(pose_theta)*ry + pose_x
+        wy =  +(math.sin(pose_theta)*rx + math.cos(pose_theta)*ry) + pose_y
+
+
+    
+        ################ ^ [End] Do not modify ^ ##################
+
+        # print("Rho: %f Alpha: %f rx: %f ry: %f wx: %f wy: %f" % (rho,alpha,rx,ry,wx,wy))
 
         if rho < LIDAR_SENSOR_MAX_RANGE:
-            # Compute scale factors based on the new extents:
-            scale_x = 360 / 28.0   # ~12.857 pixels per meter for x
-            scale_y = 360 / 14.0   # ~25.714 pixels per meter for y
+            # Part 1.3: visualize map gray values.
+
+            # You will eventually REPLACE the following 3 lines with a more robust version of the map
+            # with a grayscale drawing containing more levels than just 0 and 1.
+            scale_x = 360 / 30.0   # ~12.857 pixels per meter for x
+            scale_y = 360 / 16.0   # ~25.714 pixels per meter for y
             
             # Map world coordinates to grid indices
-            col = int((wx + 14) * scale_x)
-            row = int((7 - wy) * scale_y)
-            
-            # Clamp the indices so they remain in the [0, 359] range
-            col = min(max(col, 0), 359)
-            row = min(max(row, 0), 359)
-            
-            # Make sure you index as map[row, col] (i.e., [y, x])
-            map[row, col] += 5e3
+            x = int((wx + 15) * scale_x)
+            y = int((8-wy) * scale_y)
+            if x >= 360 or y >=360 or x < 0 or y <0:
+                print("outta range")
+            else: 
+                if map[x][y] >= 1:
+                    pass
+                else:    
+                    map[x][y]+= 0.05 
+                    # g = map[x][y]
+                    # color = int(g*256**2+g*256+g)*255 
+                    # if color > 0xffffff:
+                    #     color = int(0xffffff)
+                    # display.setColor(color)
+                    # display.drawPixel(x,y)
+                    # if map[x][y] >= .9:
+                    #     # np.save('map.npy', map)
+                    #     print("saved")
+    
 
     
     if(gripper_status=="open"):
@@ -436,12 +449,15 @@ while robot.step(timestep) != -1:
             vR = 0
         elif key == ord('S'):
             # Part 1.4: Filter map and save to filesystem
+            r_robot = int((8 - pose_y) * scale_y)
+            c_robot = int((pose_x + 15) * scale_x)
             map = map > 0.5  
             np.multiply(map, 1) 
             np.save("map.npy", map)
             # print(map)
             map_display=(map*256**2+map*256+map)*255
-            plt.imshow(map_display.T,origin='upper')
+            plt.scatter(r_robot,c_robot,marker='x',color='red')
+            plt.imshow(map_display,origin='upper')
             plt.savefig("map.png")
             print("Map file saved")
         elif key == ord('L'):
@@ -462,10 +478,9 @@ while robot.step(timestep) != -1:
         # Convert your occupancy grid to a binary occupancy map
         binary_map = (map > 0.5).astype(np.uint8)
         # Compute the robot's current grid cell using your scale factors:
-        scale_x = 360 / 28.0
-        scale_y = 360 / 14.0
-        r_robot = int((7 - pose_y) * scale_y)
-        c_robot = int((pose_x + 14) * scale_x)
+        r_robot = int((8 - pose_y) * scale_y)
+        c_robot = int((pose_x + 15) * scale_x)
+        print("RX: ", r_robot, "CY: ", c_robot)
         robot_cell = (r_robot, c_robot)
 
         # Only perform expensive frontier detection and A* planning at the defined interval.
@@ -473,7 +488,8 @@ while robot.step(timestep) != -1:
             np.save("map.npy", binary_map)
             # print(map)
             map_display=(binary_map*256**2+binary_map*256+binary_map)*255
-            plt.imshow(map_display.T,origin='upper')
+            plt.imshow(map_display,origin='upper')
+            plt.scatter(r_robot,c_robot,marker='x',color='red')
             plt.savefig("map.png")
             print("Map file saved")
             planning_counter = 0  # Reset the counter after planning
@@ -515,10 +531,39 @@ while robot.step(timestep) != -1:
                 # Proceed to next waypoint if close enough:
                 if distance < 0.1:
                     current_waypoint_index += 1
-        # If we have reached our current waypoint or there is no valid path
-        # if not current_path_world or current_waypoint_index >= len(current_path_world):
-        #     planning_counter = planning_interval  # Force a replan on the next cycle.
+    #     print("MOVE LIDAR UP to z = 0.5 !!!!!!!!!")
+    #     # robot_parts[12].setPosition(0)
+    #     # robot_parts[13].setPosition(0)
+    #     time.sleep(2)
 
+    #     path = np.load("astar_path.npy")
+    #     drive_obj = drive_ik.Drive_IK_Controller(gps, compass, AXLE_LENGTH, RADIUS, MAX_SPEED)
+    #     drive_obj.start_path(path,pose_x,pose_y,pose_theta)
+    #     while robot.step(timestep) != -1:
+    #         l,r = drive_obj.path_step(pose_x,pose_y,pose_theta)
+    #         if (l,r) == (None,None):
+    #             break
+            
+    #         # map = mapping.map_current_view(map, translation.get_current_position(gps,compass), lidar, lidar_offsets, LIDAR_SENSOR_MAX_RANGE, translation.local_size, save_file="map.npy")
+    #         # plt.imsave("map.png", map)
+
+    #         robot_parts[MOTOR_LEFT].setVelocity(l)
+    #         robot_parts[MOTOR_RIGHT].setVelocity(r)
+    #     plt.imsave("map.png", map)    
+    #     robot_parts[MOTOR_LEFT].setVelocity(0)
+    #     robot_parts[MOTOR_RIGHT].setVelocity(0) 
+    #     # If we have reached our current waypoint or there is no valid path
+    #     # if not current_path_world or current_waypoint_index >= len(current_path_world):
+    #     #     planning_counter = planning_interval  # Force a replan on the next cycle.
+    # elif state == "path_processing":
+    #     robot_parts[MOTOR_LEFT].setVelocity(0)
+    #     robot_parts[MOTOR_RIGHT].setVelocity(0) 
+
+    #     print("generating path")
+    #     points = [(395,160),(395,120),(40,120),(40,50),(430,50),(430,280),(40,280),(40,200),(440,200)]
+    #     new_path = generate_complex_path("collection_map.npy", points, save_path_fname="astar_path.npy", save_img_fname="vis_with_path.png")
+    #     print("path generated")
+    #     break
 
 
                 
