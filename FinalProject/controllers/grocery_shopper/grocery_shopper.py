@@ -2,6 +2,7 @@
 
 # Apr 1, 2025
 
+from os import path
 import time
 from controller import Robot, Motor, Camera, RangeFinder, Lidar, Keyboard
 import math
@@ -80,62 +81,90 @@ lidar.enablePointCloud()
 display = robot.getDevice("display")
 
 def a_star(path_planner_map, start_planner, end_planner):
-    '''
-    :param path_planner_map: A 2D numpy array of size 360x360 representing the world's cspace with 0 as free space and 1 as obstacle
-    :param start_planner: A tuple of indices representing the start cell in the map
-    :param end_planner: A tuple of indices representing the end cell in the map
-    :return: A list of tuples as a path from the given start to the given end in the given maze
-    '''
-    
-    if path_planner_map[start_planner[0], start_planner[1]] != 0:
-        print("Start is not traversable")
+    if path_planner_map[start_planner] != 0 or path_planner_map[end_planner] != 0:
         return []
-    if path_planner_map[end_planner[0], end_planner[1]] != 0:
-        print("End is not traversable")
-        return []
+    def heuristic(a,b): return math.hypot(a[0]-b[0], a[1]-b[1])
+    def neighbors(cell):
+        for dx in (-1,0,1):
+            for dy in (-1,0,1):
+                if dx==0 and dy==0: continue
+                nx,ny = cell[0]+dx, cell[1]+dy
+                if 0<=nx<path_planner_map.shape[0] and 0<=ny<path_planner_map.shape[1] and path_planner_map[nx,ny]==0:
+                    yield (nx,ny)
+    def cost(c,n): return math.hypot(c[0]-n[0], c[1]-n[1])
+    open_set = [(heuristic(start_planner,end_planner),0,start_planner)]
+    came_from, gscore = {}, {start_planner:0}
+    while open_set:
+        _,curr_cost,curr = heapq.heappop(open_set)
+        if curr==end_planner:
+            path=[curr]
+            while curr in came_from:
+                curr=came_from[curr]; path.append(curr)
+            return path[::-1]
+        for nbr in neighbors(curr):
+            tentative = gscore[curr] + cost(curr,nbr)
+            if tentative < gscore.get(nbr, float('inf')):
+                came_from[nbr]=curr; gscore[nbr]=tentative
+                heapq.heappush(open_set,(tentative+heuristic(nbr,end_planner), tentative, nbr))
+    return []
+
+# def a_star(path_planner_map, start_planner, end_planner):
+#     '''
+#     :param path_planner_map: A 2D numpy array of size 360x360 representing the world's cspace with 0 as free space and 1 as obstacle
+#     :param start_planner: A tuple of indices representing the start cell in the map
+#     :param end_planner: A tuple of indices representing the end cell in the map
+#     :return: A list of tuples as a path from the given start to the given end in the given maze
+#     '''
     
-    def heuristic(a, b):
-        return math.sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2)
-
-    def get_neighbors(cell):
-        neighbors = []
-        for dx in [-1, 0, 1]:
-            for dy in [-1, 0, 1]:
-                if dx == 0 and dy == 0:
-                    continue
-                nx = cell[0] + dx
-                ny = cell[1] + dy
-                if 0 <= nx < path_planner_map.shape[0] and 0 <= ny < path_planner_map.shape[1] and path_planner_map[nx, ny] == 0:
-                    neighbors.append((nx, ny))
-        return neighbors
-
-    def move_cost(current, neighbor):
-        return math.sqrt(2) if current[0] != neighbor[0] and current[1] != neighbor[1] else 1
-
-    open = []
-    heapq.heappush(open, (heuristic(start_planner, end_planner), 0, start_planner))
-    prev_location = {}
-    current_cost = {start_planner: 0}
+#     if path_planner_map[start_planner[0], start_planner[1]] != 0:
+#         print("Start is not traversable")
+#         return []
+#     if path_planner_map[end_planner[0], end_planner[1]] != 0:
+#         print("End is not traversable")
+#         return []
     
-    while open:
-        current_priority, cost, current = heapq.heappop(open)
-        if current == end_planner:  # Changed from 'end' to 'end_planner'
-            path = []
-            while current != start_planner:
-                path.append(current)
-                current = prev_location[current]
-            path.append(start_planner)
-            path.reverse()
-            return path
+#     def heuristic(a, b):
+#         return math.sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2)
+
+#     def get_neighbors(cell):
+#         neighbors = []
+#         for dx in [-1, 0, 1]:
+#             for dy in [-1, 0, 1]:
+#                 if dx == 0 and dy == 0:
+#                     continue
+#                 nx = cell[0] + dx
+#                 ny = cell[1] + dy
+#                 if 0 <= nx < path_planner_map.shape[0] and 0 <= ny < path_planner_map.shape[1] and path_planner_map[nx, ny] == 0:
+#                     neighbors.append((nx, ny))
+#         return neighbors
+
+#     def move_cost(current, neighbor):
+#         return math.sqrt(2) if current[0] != neighbor[0] and current[1] != neighbor[1] else 1
+
+#     open = []
+#     heapq.heappush(open, (heuristic(start_planner, end_planner), 0, start_planner))
+#     prev_location = {}
+#     current_cost = {start_planner: 0}
+    
+#     while open:
+#         current_priority, cost, current = heapq.heappop(open)
+#         if current == end_planner:  # Changed from 'end' to 'end_planner'
+#             path = []
+#             while current != start_planner:
+#                 path.append(current)
+#                 current = prev_location[current]
+#             path.append(start_planner)
+#             path.reverse()
+#             return path
         
-        for neighbor in get_neighbors(current):
-            new_cost = current_cost[current] + move_cost(current, neighbor)
-            if neighbor not in current_cost or new_cost < current_cost[neighbor]:
-                current_cost[neighbor] = new_cost
-                priority = new_cost + heuristic(neighbor, end_planner)
-                heapq.heappush(open, (priority, new_cost, neighbor))
-                prev_location[neighbor] = current
-    return [end_planner]
+#         for neighbor in get_neighbors(current):
+#             new_cost = current_cost[current] + move_cost(current, neighbor)
+#             if neighbor not in current_cost or new_cost < current_cost[neighbor]:
+#                 current_cost[neighbor] = new_cost
+#                 priority = new_cost + heuristic(neighbor, end_planner)
+#                 heapq.heappush(open, (priority, new_cost, neighbor))
+#                 prev_location[neighbor] = current
+#     return [end_planner]
 
 
 
@@ -293,32 +322,41 @@ def compute_control(current_pose, waypoint):
 
 def grid_to_world(cell, scale_x, scale_y):
     row, col = cell
-    wx = col / scale_x - 14
-    wy = 7 - row / scale_y
+    wx = col/scale_x - x_dim/2
+    wy = row/scale_y - y_dim/2
     return np.array([wx, wy])
 
 def choose_frontier(robot_cell, frontiers):
+    # Both robot_cell and each frontier cell are assumed to be in (row, col) order,
+    # where row corresponds to y and col corresponds to x.
     if not frontiers:
         return None
-    r_robot, c_robot = robot_cell
+    robot_y, robot_x = robot_cell
     min_dist = float('inf')
     best = None
     for cell in frontiers:
-        dr = cell[0] - r_robot
-        dc = cell[1] - c_robot
+        cell_y, cell_x = cell  # cell: (row, col)
+        dr = cell_y - robot_y
+        dc = cell_x - robot_x
         dist = math.hypot(dr, dc)
         if dist < min_dist:
             min_dist = dist
             best = cell
     return best
 
-def detect_frontiers(binary_map):
+def detect_frontiers(map):
     # Create a 3x3 kernel that sums neighbor values.
-    kernel = np.ones((3, 3))
-    # Convolve the binary map to get the sum of neighbors
-    neighbor_sum = scipy.ndimage.convolve(binary_map, kernel, mode='constant', cval=0)
-    # Define frontiers as free/unknown cells that have at least one neighbor that is also free/unknown.
-    frontiers = list(zip(*np.where((binary_map == 0) & (neighbor_sum < 9))))
+    unknown_mask   = (map == 0)                  # never sensor‑hit
+    obstacle_mask  = (map >= 0.5)                # high confidence obstacle
+    free_mask      = (~unknown_mask & ~obstacle_mask)  # seen & traversable
+
+    # count unknown neighbors
+    kernel    = np.ones((3,3), dtype=np.uint8)
+    unk_neigh = scipy.ndimage.convolve(unknown_mask.astype(np.uint8), kernel,
+                                    mode='constant', cval=0)
+
+    # true frontiers = free cells adjacent to at least one unknown
+    frontiers = list(zip(*np.where(free_mask & (unk_neigh > 0))))
     return frontiers
 
 
@@ -337,7 +375,7 @@ lidar_offsets = lidar_offsets[83:len(lidar_offsets)-83] # Only keep lidar readin
 
 map = None
 map = np.zeros(shape=[360,360])
-state="manual_map"
+state="auto_map_astar"
 current_path_world = []  # List of waypoints (in world coords)
 current_waypoint_index = 0
 # Define the planning update frequency (e.g., every 50 timesteps)
@@ -346,7 +384,10 @@ planning_counter = 100
 
 # ------------------------------------------------------------------
 # Helper Functions
-
+x_dim= 29.0
+y_dim= 15.0
+scale_x = 360 / x_dim   # ~12.857 pixels per meter for x
+scale_y = 360 / y_dim  # ~25.714 pixels per meter for y
 
 gripper_status="closed"
 print("=== Running Grocery Shopper...")
@@ -356,10 +397,10 @@ while robot.step(timestep) != -1:
     pose_y = -gps.getValues()[1]
     pose_x = -gps.getValues()[0]
 
-    print(f'x: {-gps.getValues()[0]} y: {-gps.getValues()[1]}')
+    # print(f'x: {-gps.getValues()[0]} y: {-gps.getValues()[1]}')
 
     n = compass.getValues()
-    rad = ((math.atan2(n[0], n[1])))
+    rad = (math.atan2(n[0], n[1]))
     pose_theta = rad
     
     lidar_sensor_readings = lidar.getRangeImage()
@@ -391,12 +432,10 @@ while robot.step(timestep) != -1:
 
             # You will eventually REPLACE the following 3 lines with a more robust version of the map
             # with a grayscale drawing containing more levels than just 0 and 1.
-            scale_x = 360 / 30.0   # ~12.857 pixels per meter for x
-            scale_y = 360 / 16.0   # ~25.714 pixels per meter for y
             
             # Map world coordinates to grid indices
-            x = int((wx + 15) * scale_x)
-            y = int((8-wy) * scale_y)
+            x = int((wx + x_dim/2) * scale_x)
+            y = int((y_dim/2+wy) * scale_y)
             if x >= 360 or y >=360 or x < 0 or y <0:
                 print("outta range")
             else: 
@@ -449,14 +488,14 @@ while robot.step(timestep) != -1:
             vR = 0
         elif key == ord('S'):
             # Part 1.4: Filter map and save to filesystem
-            r_robot = int((8 - pose_y) * scale_y)
-            c_robot = int((pose_x + 15) * scale_x)
+            y_robot = int((y_dim/2+ pose_y) * scale_y)
+            x_robot = int((pose_x + x_dim/2) * scale_x)
             map = map > 0.5  
             np.multiply(map, 1) 
             np.save("map.npy", map)
             # print(map)
             map_display=(map*256**2+map*256+map)*255
-            plt.scatter(r_robot,c_robot,marker='x',color='red')
+            plt.scatter(y_robot,x_robot,marker='x',color='red')
             plt.imshow(map_display,origin='upper')
             plt.savefig("map.png")
             print("Map file saved")
@@ -471,17 +510,72 @@ while robot.step(timestep) != -1:
             vL *= 0.75
             vR *= 0.75
             
-    if state == "auto_map":
+    if state=="auto_map_astar":
+        planning_counter +=1
+        bmap = (map>0.5).astype(np.uint8)
+        rcell = (int((y_dim/2+pose_y)*scale_y), int((pose_x + x_dim/2)*scale_x))
+        if planning_counter>=planning_interval:
+            planning_counter=0
+            frontiers = detect_frontiers(map)
+            # filter out the robot’s own cell
+            frontiers = [f for f in frontiers if f != rcell]
+            goal=choose_frontier(rcell, frontiers)
+            if goal is not None:
+                path_grid = a_star(bmap, rcell, goal)
+                current_path_world = [grid_to_world(c,scale_x,scale_y) for c in path_grid]
+                current_waypoint_index=0
+                # visualize
+                disp=(bmap*255).astype(np.uint8)
+                plt.imshow(disp,origin='upper')
+                ys=[c[1] for c in path_grid]; xs=[c[0] for c in path_grid]
+                print("Robot cell: ",rcell)
+                print("Path: ",path_grid)
+                plt.plot(xs,ys,color='blue')
+                plt.scatter(rcell[0],rcell[1],marker='x',color='red')
+                plt.savefig("path.png"); plt.clf()
+            else:
+                vL=vR=0; print("Exploration complete!"); break
+        if current_path_world:
+            if current_waypoint_index >= len(current_path_world):
+                print("Reached end of path. Replanning...")
+                current_path_world = []
+                current_waypoint_index = 0
+            else:
+                wp = current_path_world[current_waypoint_index]
+                distance, angle_error = compute_control((pose_x,pose_y,pose_theta), wp)
+
+                # 1) Rotate toward waypoint
+                if abs(angle_error) > 0.2:
+                    v_forward = 0.0
+                    v_turn = 2.0 * angle_error   # positive -> turn left (CCW)
+                else:
+                    # 2) Move forward
+                    v_forward = 1.0 * distance
+                    v_turn = 0.0
+
+                # Differential drive conversion
+                vL = (2*v_forward - v_turn * AXLE_LENGTH) / (2*RADIUS)
+                vR = (2*v_forward + v_turn * AXLE_LENGTH) / (2*RADIUS)
+
+                # Clamp
+                vL = max(min(vL, MAX_SPEED), -MAX_SPEED)
+                vR = max(min(vR, MAX_SPEED), -MAX_SPEED)
+
+                # Next waypoint if close
+                if distance < 0.1:
+                    current_waypoint_index += 1
+            
+    if state == "auto_map_rrt":
         # Increment the planning counter each simulation step
         planning_counter += 1
 
         # Convert your occupancy grid to a binary occupancy map
         binary_map = (map > 0.5).astype(np.uint8)
         # Compute the robot's current grid cell using your scale factors:
-        r_robot = int((8 - pose_y) * scale_y)
-        c_robot = int((pose_x + 15) * scale_x)
-        print("RX: ", r_robot, "CY: ", c_robot)
-        robot_cell = (r_robot, c_robot)
+        y_robot = int((y_dim/2 +pose_y) * scale_y)
+        x_robot = int((pose_x +x_dim/2) * scale_x)
+        # print("RY: ", y_robot, "RX: ", x_robot)
+        robot_cell = (y_robot, x_robot)
 
         # Only perform expensive frontier detection and A* planning at the defined interval.
         if planning_counter >= planning_interval:
@@ -489,18 +583,65 @@ while robot.step(timestep) != -1:
             # print(map)
             map_display=(binary_map*256**2+binary_map*256+binary_map)*255
             plt.imshow(map_display,origin='upper')
-            plt.scatter(r_robot,c_robot,marker='x',color='red')
+            plt.scatter(y_robot,x_robot,marker='x',color='red')
             plt.savefig("map.png")
+            plt.close()
             print("Map file saved")
             planning_counter = 0  # Reset the counter after planning
 
-            frontiers = detect_frontiers(binary_map)
+            frontiers = detect_frontiers(map)
             goal_cell = choose_frontier(robot_cell, frontiers)
             if goal_cell is not None:
-                path_grid = a_star(binary_map, robot_cell, goal_cell)
-                # Convert the grid path to world coordinates:
-                current_path_world = [grid_to_world(cell, scale_x, scale_y) for cell in path_grid]
+                # path_grid = a_star(binary_map, robot_cell, goal_cell)
+                # # Convert the grid path to world coordinates:
+                # current_path_world = [grid_to_world(cell, scale_x, scale_y) for cell in path_grid]
+                # current_waypoint_index = 0
+
+                # # --- New Code: Save an image overlaying the planned path ---
+                # # Plot the same map_display, overlay the robot position and the current path
+                # plt.imshow(map_display, origin='upper')
+                # # For consistency with the map display, use col for x and row for y.
+                # plt.scatter(y_robot, x_robot,marker='x', color='red')
+                # # Extract the grid coordinates from the planned path (swap row/col for plotting)
+                # path_rows = [cell[0] for cell in path_grid]
+                # path_cols = [cell[1] for cell in path_grid]
+                # print(path_rows, path_cols)
+                # plt.scatter(path_cols, path_rows, marker='x', color='blue')
+                # plt.savefig("path.png")
+                # plt.clf()  # Clear figure after saving
+                goal_world = grid_to_world(goal_cell, scale_x, scale_y)
+                start_point = np.array([pose_x, pose_y])
+
+                def state_is_valid(pt):
+                    cx = int((pt[0] + x_dim/2) * scale_x)
+                    cy = int((y_dim/2 + pt[1]) * scale_y)
+                    if 0 <= cx < binary_map.shape[0] and 0 <= cy < binary_map.shape[1]:
+                        return binary_map[cx][cy] == 0
+                    return False
+
+                state_bounds = np.array([[-x_dim/2, x_dim/2], [-y_dim/2, y_dim/2]])
+                nodes = rrt_star(state_bounds, None, state_is_valid, start_point, goal_world, k=500, delta_q=0.5)
+
+                closest_node = min(nodes, key=lambda node: np.linalg.norm(node.point - goal_world))
+                path = []
+                node = closest_node
+                while node is not None:
+                    path.append(node.point)
+                    node = node.parent
+                path.reverse()
+
+                current_path_world = path
                 current_waypoint_index = 0
+
+                # Save RRT* path visualization
+                plt.imshow(map_display, origin='upper')
+                path_rows = [int((y_dim/2 + pt[1]) * scale_y) for pt in path]
+                path_cols = [int((pt[0] + x_dim/2) * scale_x) for pt in path]
+                # print(path)
+                plt.plot(path_cols, path_rows, marker='x')
+                plt.savefig("rrt_path.png")
+                plt.clf()
+                # --- End New Code ---
             else:
                 # No frontier found; exploration complete.
                 vL = 0
@@ -522,12 +663,14 @@ while robot.step(timestep) != -1:
                 # Controller gains; adjust these as needed:
                 K_linear = 1.0
                 K_angular = 2.0
-                if abs(angle_error) > 0.1:
-                    vL = -K_angular * angle_error
-                    vR =  K_angular * angle_error
-                else:
-                    vL = K_linear * distance - K_angular * angle_error
-                    vR = K_linear * distance + K_angular * angle_error
+                # if abs(angle_error) > 0.1:
+                #     vL = -K_angular * angle_error
+                #     vR =  K_angular * angle_error
+                # else:
+                #     vL = K_linear * distance - K_angular * angle_error
+                #     vR = K_linear * distance + K_angular * angle_error
+                vL=max(min(-12*angle_error+12.56*distance, MAX_SPEED*0.5),-MAX_SPEED*0.5)
+                vR=max(min(12*angle_error+12.56*distance, MAX_SPEED*0.5),-MAX_SPEED*0.5)
                 # Proceed to next waypoint if close enough:
                 if distance < 0.1:
                     current_waypoint_index += 1
@@ -567,7 +710,7 @@ while robot.step(timestep) != -1:
 
 
                 
-    robot_parts["wheel_left_joint"].setVelocity(vL/5)
-    robot_parts["wheel_right_joint"].setVelocity(vR/5)
-    print("pose_x: ", pose_x, "pose_y: ", pose_y, "pose_theta: ", pose_theta)
-    print("vL: ", vL, "vR: ", vR)
+    robot_parts["wheel_left_joint"].setVelocity(vL)
+    robot_parts["wheel_right_joint"].setVelocity(vR)
+    # print("pose_x: ", pose_x, "pose_y: ", pose_y, "pose_theta: ", pose_theta)
+    # print("vL: ", vL, "vR: ", vR)
