@@ -2,12 +2,13 @@
 
 # Apr 1, 2025
 
+from collections import deque
 from os import path
 import time
 from controller import Robot, Motor, Camera, RangeFinder, Lidar, Keyboard
 import math
 import numpy as np
-from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt, scale
 import heapq
 import random
 import scipy.ndimage
@@ -344,22 +345,76 @@ def choose_frontier(robot_cell, frontiers):
             best = cell
     return best
 
-def detect_frontiers(map):
-    # Create a 3x3 kernel that sums neighbor values.
-    unknown_mask   = (map == 0)                  # never sensor‑hit
-    obstacle_mask  = (map >= 0.5)                # high confidence obstacle
-    free_mask      = (~unknown_mask & ~obstacle_mask)  # seen & traversable
+def detect_frontiers(occupancy_map, robot_cell, obstacle_thresh=0.5):
+    """
+    Find all free cells adjacent to unexplored (unknown) cells,
+    but only those reachable from robot_cell.
 
-    # count unknown neighbors
-    kernel    = np.ones((3,3), dtype=np.uint8)
-    unk_neigh = scipy.ndimage.convolve(unknown_mask.astype(np.uint8), kernel,
-                                    mode='constant', cval=0)
+    occupancy_map: 2D float array (your map)
+    robot_cell:    (row, col) tuple
+    obstacle_thresh: threshold above which a cell is considered occupied
+    """
+    h, w = occupancy_map.shape
+    # 1 = occupied, 0 = free or unknown
+    obs = (occupancy_map >= obstacle_thresh).astype(np.uint8)
 
-    # true frontiers = free cells adjacent to at least one unknown
-    frontiers = list(zip(*np.where(free_mask & (unk_neigh > 0))))
+    # BFS out from robot over all truly free (obs==0) cells
+    visited = np.zeros_like(obs)
+    q = deque([robot_cell])
+    visited[robot_cell] = 1
+
+    while q:
+        r, c = q.popleft()
+        for dr, dc in ((1,0),(-1,0),(0,1),(0,-1)):
+            nr, nc = r+dr, c+dc
+            if 0 <= nr < h and 0 <= nc < w and not visited[nr,nc]:
+                if obs[nr,nc] == 0:          # free or unknown
+                    visited[nr,nc] = 1
+                    # only enqueue if we know it’s free (i.e. has been seen but < obstacle_thresh)
+                    if occupancy_map[nr,nc] > 0 and occupancy_map[nr,nc] < obstacle_thresh:
+                        q.append((nr,nc))
+
+    frontiers = []
+    # now any visited cell that has at least one unknown neighbor is a frontier
+    for r in range(h):
+        for c in range(w):
+            if visited[r,c]:
+                for dr, dc in ((1,0),(-1,0),(0,1),(0,-1)):
+                    nr, nc = r+dr, c+dc
+                    if 0 <= nr < h and 0 <= nc < w:
+                        if occupancy_map[nr,nc] == 0:  # still unknown
+                            frontiers.append((r,c))
+                            break
     return frontiers
 
-
+def find_frontier_path(occ, start_cell):
+    h, w = occ.shape
+    visited = np.zeros_like(occ, dtype=bool)
+    prev = {}
+    dq = deque([start_cell])
+    visited[start_cell] = True
+    while dq:
+        r, c = dq.popleft()
+        # frontier if any neighbor unknown
+        for dr, dc in ((1,0),(-1,0),(0,1),(0,-1)):
+            nr, nc = r+dr, c+dc
+            if 0 <= nr < h and 0 <= nc < w and occ[nr,nc] == 0:
+                # reconstruct path
+                path = [(r,c)]
+                while (r,c) != start_cell:
+                    r,c = prev[(r,c)]
+                    path.append((r,c))
+                path.reverse()
+                return path
+        # expand neighbors
+        for dr, dc in ((1,0),(-1,0),(0,1),(0,-1)):
+            nr, nc = r+dr, c+dc
+            if 0 <= nr < h and 0 <= nc < w and not visited[nr,nc]:
+                if occ[nr,nc] > 0 and occ[nr,nc] < obstacle_thresh:
+                    visited[nr,nc] = True
+                    prev[(nr,nc)] = (r,c)
+                    dq.append((nr,nc))
+    return []
 
 # Odometry
 pose_x     = 0
@@ -379,9 +434,9 @@ state="auto_map_astar"
 current_path_world = []  # List of waypoints (in world coords)
 current_waypoint_index = 0
 # Define the planning update frequency (e.g., every 50 timesteps)
-planning_interval = 100  
-planning_counter = 100
-
+planning_interval = 500  
+planning_counter = 500
+obstacle_thresh = 0.5
 # ------------------------------------------------------------------
 # Helper Functions
 x_dim= 29.0
@@ -509,32 +564,48 @@ while robot.step(timestep) != -1:
         else: # slow down
             vL *= 0.75
             vR *= 0.75
+        print("pose_x: ", pose_x, "pose_y: ", pose_y, "pose_theta: ", pose_theta)
             
     if state=="auto_map_astar":
-        planning_counter +=1
-        bmap = (map>0.5).astype(np.uint8)
-        rcell = (int((y_dim/2+pose_y)*scale_y), int((pose_x + x_dim/2)*scale_x))
-        if planning_counter>=planning_interval:
-            planning_counter=0
-            frontiers = detect_frontiers(map)
-            # filter out the robot’s own cell
-            frontiers = [f for f in frontiers if f != rcell]
-            goal=choose_frontier(rcell, frontiers)
-            if goal is not None:
-                path_grid = a_star(bmap, rcell, goal)
-                current_path_world = [grid_to_world(c,scale_x,scale_y) for c in path_grid]
-                current_waypoint_index=0
-                # visualize
-                disp=(bmap*255).astype(np.uint8)
-                plt.imshow(disp,origin='upper')
-                ys=[c[1] for c in path_grid]; xs=[c[0] for c in path_grid]
-                print("Robot cell: ",rcell)
-                print("Path: ",path_grid)
-                plt.plot(xs,ys,color='blue')
-                plt.scatter(rcell[0],rcell[1],marker='x',color='red')
-                plt.savefig("path.png"); plt.clf()
+        planning_counter += 1
+    if planning_counter >= planning_interval:
+        planning_counter = 0
+
+        # Build binary map for A*: 1=obstacle, 0=free or unexplored
+        bmap = (map >= obstacle_thresh).astype(np.uint8)
+
+        # Robot’s grid cell
+        rix = int((pose_x + x_dim/2) * scale_x)
+        riy = int((y_dim/2 + pose_y) * scale_y)
+        rcell = (rix, riy)
+
+        # Find all unexplored cells (value == 0)
+        unexplored = np.argwhere(map == 0.0)   # array of [x, y] pairs
+        if unexplored.size == 0:
+            print("Exploration complete!")
+            current_path_world = []
+        else:
+            # Compute distance in grid‐space and pick closest
+            dists = np.linalg.norm(unexplored - np.array(rcell), axis=1)
+            idx   = np.argmax(dists)
+            goal  = tuple(unexplored[idx])
+
+            # Plan in grid‐space
+            path_grid = a_star(bmap, rcell, goal)
+            if path_grid:
+                # Convert each grid‐cell to world coords
+                current_path_world = [
+                    grid_to_world((cell[1], cell[0]), scale_x, scale_y)
+                    for cell in path_grid
+                ]
+                # plt.scatter(y_robot,x_robot,marker='x',color='red')
+                plt.imshow(map,origin='upper')
+                plt.plot(current_path_world)
+                plt.savefig("map.png")
+                current_waypoint_index = 0
+                print(f"Planned path to unexplored cell {goal}, length {len(path_grid)}")
             else:
-                vL=vR=0; print("Exploration complete!"); break
+                print(f"No path to unexplored cell {goal}")
         if current_path_world:
             if current_waypoint_index >= len(current_path_world):
                 print("Reached end of path. Replanning...")
@@ -542,28 +613,47 @@ while robot.step(timestep) != -1:
                 current_waypoint_index = 0
             else:
                 wp = current_path_world[current_waypoint_index]
-                distance, angle_error = compute_control((pose_x,pose_y,pose_theta), wp)
+                
+            # distance, angle_error = compute_control((pose_x,pose_y,pose_theta), wp)
+            wp = current_path_world[current_waypoint_index]
+            x_goal,y_goal=wp
+            print("Y_goal: ", y_goal, "X_goal: ", x_goal)
+            print("Pose_x: ", pose_x, "Pose_y: ", pose_y, "Pose_theta: ", pose_theta)
+            rho=np.sqrt((x_goal - pose_x) ** 2 + (y_goal - pose_y) ** 2)  # Distance to the goal
+            theta_g = np.arctan2(y_goal - pose_y, x_goal - pose_x)  # Angle to the goal
+            alpha = theta_g - pose_theta-np.pi  # Difference from robot's heading
+            if alpha<-np.pi:
+                alpha += 2*np.pi
+            vL=max(min(-8*alpha+12.56*rho, MAX_SPEED*0.5),-MAX_SPEED*0.5)
+            vR=max(min(8*alpha+12.56*rho, MAX_SPEED*0.5),-MAX_SPEED*0.5)
+            print(f"alpha={alpha:.2f}, rho={rho:.2f}")
+            if rho<0.15: 
+                if current_waypoint_index < len(current_path_world) - 1: current_waypoint_index += 1
+                else: 
+                    print("Goal reached")
+                    planning_counter=planning_interval
+                    vL=0
+                    vR=0
+                # # 1) Rotate toward waypoint
+                # if abs(angle_error) > 0.2:
+                #     v_forward = 0.0
+                #     v_turn = 2.0 * angle_error   # positive -> turn left (CCW)
+                # else:
+                #     # 2) Move forward
+                #     v_forward = 1.0 * distance
+                #     v_turn = 0.0
 
-                # 1) Rotate toward waypoint
-                if abs(angle_error) > 0.2:
-                    v_forward = 0.0
-                    v_turn = 2.0 * angle_error   # positive -> turn left (CCW)
-                else:
-                    # 2) Move forward
-                    v_forward = 1.0 * distance
-                    v_turn = 0.0
+                # # Differential drive conversion
+                # vL = (2*v_forward - v_turn * AXLE_LENGTH) / (2*RADIUS)
+                # vR = (2*v_forward + v_turn * AXLE_LENGTH) / (2*RADIUS)
 
-                # Differential drive conversion
-                vL = (2*v_forward - v_turn * AXLE_LENGTH) / (2*RADIUS)
-                vR = (2*v_forward + v_turn * AXLE_LENGTH) / (2*RADIUS)
+                # # Clamp
+                # vL = max(min(vL, MAX_SPEED), -MAX_SPEED)
+                # vR = max(min(vR, MAX_SPEED), -MAX_SPEED)
 
-                # Clamp
-                vL = max(min(vL, MAX_SPEED), -MAX_SPEED)
-                vR = max(min(vR, MAX_SPEED), -MAX_SPEED)
-
-                # Next waypoint if close
-                if distance < 0.1:
-                    current_waypoint_index += 1
+                # # Next waypoint if close
+                # if distance < 0.1:
+                #     current_waypoint_index += 1
             
     if state == "auto_map_rrt":
         # Increment the planning counter each simulation step
@@ -709,7 +799,7 @@ while robot.step(timestep) != -1:
     #     break
 
 
-                
+    print("vL:", vL, "vR: ", vR)
     robot_parts["wheel_left_joint"].setVelocity(vL)
     robot_parts["wheel_right_joint"].setVelocity(vR)
     # print("pose_x: ", pose_x, "pose_y: ", pose_y, "pose_theta: ", pose_theta)
