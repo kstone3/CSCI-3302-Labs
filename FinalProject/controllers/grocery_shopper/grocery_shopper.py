@@ -570,38 +570,30 @@ while robot.step(timestep) != -1:
         planning_counter += 1
     if planning_counter >= planning_interval:
         planning_counter = 0
-
-        # Build binary map for A*: 1=obstacle, 0=free or unexplored
         bmap = (map >= obstacle_thresh).astype(np.uint8)
-
-        # Robot’s grid cell
         rix = int((pose_x + x_dim/2) * scale_x)
         riy = int((y_dim/2 + pose_y) * scale_y)
         rcell = (rix, riy)
-
-        # Find all unexplored cells (value == 0)
         unexplored = np.argwhere(map == 0.0)   # array of [x, y] pairs
         if unexplored.size == 0:
             print("Exploration complete!")
             current_path_world = []
         else:
-            # Compute distance in grid‐space and pick closest
             dists = np.linalg.norm(unexplored - np.array(rcell), axis=1)
             idx   = np.argmax(dists)
             goal  = tuple(unexplored[idx])
-
-            # Plan in grid‐space
             path_grid = a_star(bmap, rcell, goal)
             if path_grid:
-                # Convert each grid‐cell to world coords
                 current_path_world = [
                     grid_to_world((cell[1], cell[0]), scale_x, scale_y)
                     for cell in path_grid
                 ]
-                # plt.scatter(y_robot,x_robot,marker='x',color='red')
-                plt.imshow(map,origin='upper')
-                plt.plot(current_path_world)
-                plt.savefig("map.png")
+                plt.scatter(riy,rix,marker='x',color='red')
+                map_display=map.copy()
+                map_display[map>0.5]=1
+                map_display[(map > 0) & (map <= 0.5)]=0.5
+                plt.imshow(map_display,origin='upper')
+                plt.savefig("path.png")
                 current_waypoint_index = 0
                 print(f"Planned path to unexplored cell {goal}, length {len(path_grid)}")
             else:
@@ -613,8 +605,6 @@ while robot.step(timestep) != -1:
                 current_waypoint_index = 0
             else:
                 wp = current_path_world[current_waypoint_index]
-                
-            # distance, angle_error = compute_control((pose_x,pose_y,pose_theta), wp)
             wp = current_path_world[current_waypoint_index]
             x_goal,y_goal=wp
             print("Y_goal: ", y_goal, "X_goal: ", x_goal)
