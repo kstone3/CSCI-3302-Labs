@@ -243,7 +243,6 @@ if mode == 'planner':
         y_min, y_max = max(0, y - footprint_radius), min(map.shape[1], y + footprint_radius)
         configured_map[x_min:x_max, y_min:y_max] = 1
     if not np.all(np.isin(configured_map, [0, 1])): print("Error in configured map: contains values other than 0 and 1")
-    print(configured_map==map)
     plt.imshow(configured_map.T)
     # plt.show()
     np.save("configured_map.npy", configured_map)

@@ -5,15 +5,16 @@
 from collections import deque
 from os import path
 import time
+
+from sympy import O
 from controller import Robot, Motor, Camera, RangeFinder, Lidar, Keyboard
 import math
 import numpy as np
 from matplotlib import pyplot as plt, scale
 import heapq
 import random
-import scipy.ndimage
-import drive_ik
 import cv2
+from matplotlib.colors import ListedColormap, BoundaryNorm
 
 #Initialization
 print("=== Initializing Grocery Shopper...")
@@ -417,6 +418,34 @@ def find_frontier_path(occ, start_cell):
                     dq.append((nr,nc))
     return []
 
+def bresenham(x0, y0, x1, y1):
+    """
+    Bresenham’s line algorithm between (x0,y0) and (x1,y1).
+    Returns list of all integer (x,y) on the line, including both endpoints.
+    """
+    cells = []
+    dx = abs(x1 - x0)
+    dy = abs(y1 - y0)
+    sx = 1 if x1 > x0 else -1
+    sy = 1 if y1 > y0 else -1
+    err = dx - dy
+    x, y = x0, y0
+
+    while True:
+        cells.append((x, y))
+        if x == x1 and y == y1:
+            break
+        e2 = 2 * err
+        if e2 > -dy:
+            err -= dy
+            x   += sx
+        if e2 <  dx:
+            err += dx
+            y   += sy
+
+    return cells
+
+
 # Odometry
 pose_x     = 0
 pose_y     = 0
@@ -429,15 +458,15 @@ lidar_sensor_readings = [] # List to hold sensor readings
 lidar_offsets = np.linspace(-LIDAR_ANGLE_RANGE/2., +LIDAR_ANGLE_RANGE/2., LIDAR_ANGLE_BINS)
 lidar_offsets = lidar_offsets[83:len(lidar_offsets)-83] # Only keep lidar readings not blocked by robot chassis
 
-map = None
-map = np.zeros(shape=[360,360])
-state="auto_map_astar"
+# map = np.zeros(shape=[360,360])
+map=np.load("map.npy") if path.exists("map.npy") else np.zeros(shape=[360,360])
+state="auto_map_astar"  # "manual_map", "auto_map_astar", "auto_map_rrt"
 # state = "vision"
 current_path_world = []  # List of waypoints (in world coords)
 current_waypoint_index = 0
 # Define the planning update frequency (e.g., every 50 timesteps)
 planning_interval = 500  
-planning_counter = 500
+planning_counter = 450
 obstacle_thresh = 0.5
 # ------------------------------------------------------------------
 # Helper Functions
@@ -445,6 +474,12 @@ x_dim= 29.0
 y_dim= 15.0
 scale_x = 360 / x_dim   # ~12.857 pixels per meter for x
 scale_y = 360 / y_dim  # ~25.714 pixels per meter for y
+
+UNEXPLORED = 0
+FREE       = 1
+OBSTACLE   = 2
+
+image_data=None
 
 gripper_status="closed"
 print("=== Running Grocery Shopper...")
@@ -462,21 +497,54 @@ while robot.step(timestep) != -1:
     
     lidar_sensor_readings = lidar.getRangeImage()
     lidar_sensor_readings = lidar_sensor_readings[83:len(lidar_sensor_readings)-83]
-    
-    for i, rho in enumerate(lidar_sensor_readings):
-        alpha = lidar_offsets[i]
+    robot_gx = int((pose_x + x_dim/2) * scale_x)
+    robot_gy = int((y_dim/2 + pose_y) * scale_y)
 
+    # process each lidar beam
+    for i, rho in enumerate(lidar_sensor_readings):
         if rho > LIDAR_SENSOR_MAX_RANGE:
             continue
 
-        # The Webots coordinate system doesn't match the robot-centric axes we're used to
+        alpha = lidar_offsets[i]
+        # robot‐centric hit point
         rx = -math.cos(alpha)*rho
-        ry = math.sin(alpha)*rho
+        ry =  math.sin(alpha)*rho
+        # world coords
+        wx =  math.cos(pose_theta)*rx - math.sin(pose_theta)*ry + pose_x
+        wy =  math.sin(pose_theta)*rx + math.cos(pose_theta)*ry + pose_y
+
+        gx = int((wx + x_dim/2) * scale_x)
+        gy = int((y_dim/2 + wy) * scale_y)
+
+        if not (0 <= gx < map.shape[0] and 0 <= gy < map.shape[1]):
+            continue
+
+        # trace the beam
+        ray = bresenham(robot_gx, robot_gy, gx, gy)
+        # mark all but the last cell as FREE (if they were still UNEXPLORED)
+        for cx, cy in ray[:-1]:
+            if map[cx, cy] == UNEXPLORED:
+                map[cx, cy] = FREE
+
+        # finally, mark the endpoint as OBSTACLE (overwrite anything)
+        map[gx, gy] = OBSTACLE
+    # robot_gx = int((pose_x + x_dim/2) * scale_x)
+    # robot_gy = int((y_dim/2 + pose_y) * scale_y)
+
+    # for i, rho in enumerate(lidar_sensor_readings):
+    #     alpha = lidar_offsets[i]
+
+    #     if rho > LIDAR_SENSOR_MAX_RANGE:
+    #         continue
+
+    #     # The Webots coordinate system doesn't match the robot-centric axes we're used to
+    #     rx = -math.cos(alpha)*rho
+    #     ry = math.sin(alpha)*rho
 
 
         # Convert detection from robot coordinates into world coordinates
-        wx =  math.cos(pose_theta)*rx - math.sin(pose_theta)*ry + pose_x
-        wy =  +(math.sin(pose_theta)*rx + math.cos(pose_theta)*ry) + pose_y
+        # wx =  math.cos(pose_theta)*rx - math.sin(pose_theta)*ry + pose_x
+        # wy =  +(math.sin(pose_theta)*rx + math.cos(pose_theta)*ry) + pose_y
 
 
     
@@ -484,22 +552,22 @@ while robot.step(timestep) != -1:
 
         # print("Rho: %f Alpha: %f rx: %f ry: %f wx: %f wy: %f" % (rho,alpha,rx,ry,wx,wy))
 
-        if rho < LIDAR_SENSOR_MAX_RANGE:
+        # if rho < LIDAR_SENSOR_MAX_RANGE:
             # Part 1.3: visualize map gray values.
 
             # You will eventually REPLACE the following 3 lines with a more robust version of the map
             # with a grayscale drawing containing more levels than just 0 and 1.
             
             # Map world coordinates to grid indices
-            x = int((wx + x_dim/2) * scale_x)
-            y = int((y_dim/2+wy) * scale_y)
-            if x >= 360 or y >=360 or x < 0 or y <0:
-                print("outta range")
-            else: 
-                if map[x][y] >= 1:
-                    pass
-                else:    
-                    map[x][y]+= 0.05 
+            # x = int((wx + x_dim/2) * scale_x)
+            # y = int((y_dim/2+wy) * scale_y)
+            # if x >= 360 or y >=360 or x < 0 or y <0:
+            #     print("outta range")
+            # else: 
+            #     if map[x][y] >= 1:
+            #         pass
+            #     else:    
+            #         map[x][y]+= 0.05 
                     # g = map[x][y]
                     # color = int(g*256**2+g*256+g)*255 
                     # if color > 0xffffff:
@@ -547,14 +615,25 @@ while robot.step(timestep) != -1:
             # Part 1.4: Filter map and save to filesystem
             y_robot = int((y_dim/2+ pose_y) * scale_y)
             x_robot = int((pose_x + x_dim/2) * scale_x)
-            map = map > 0.5  
-            np.multiply(map, 1) 
+            # map = map > 0.5  
+            # np.multiply(map, 1) 
             np.save("map.npy", map)
             # print(map)
             map_display=(map*256**2+map*256+map)*255
             plt.scatter(y_robot,x_robot,marker='x',color='red')
-            plt.imshow(map_display,origin='upper')
+            # plt.imshow(map_display,origin='upper')
+            cmap = ListedColormap(['lightgray','lightgreen','black'])
+
+            plt.figure(figsize=(6,6))
+            plt.imshow(map,               # your 0/1/2 array
+                    cmap=cmap,
+                    vmin=0, vmax=2,     # map 0→idx0, 1→idx1, 2→idx2
+                    origin='lower',
+                    interpolation='nearest')
+            plt.colorbar( ticks=[0,1,2],
+                        label='0=unexplored, 1=free, 2=obstacle')
             plt.savefig("map.png")
+            np.save("map.npy", map)
             print("Map file saved")
         elif key == ord('L'):
             # You will not use this portion in Part 1 but here's an example for loading saved a numpy array
@@ -570,36 +649,84 @@ while robot.step(timestep) != -1:
             
     if state=="auto_map_astar":
         planning_counter += 1
-    if planning_counter >= planning_interval:
-        planning_counter = 0
-        bmap = (map >= obstacle_thresh).astype(np.uint8)
-        rix = int((pose_x + x_dim/2) * scale_x)
-        riy = int((y_dim/2 + pose_y) * scale_y)
-        rcell = (rix, riy)
-        unexplored = np.argwhere(map == 0.0)   # array of [x, y] pairs
-        if unexplored.size == 0:
-            print("Exploration complete!")
-            current_path_world = []
-        else:
-            dists = np.linalg.norm(unexplored - np.array(rcell), axis=1)
-            idx   = np.argmax(dists)
-            goal  = tuple(unexplored[idx])
-            path_grid = a_star(bmap, rcell, goal)
+
+        # binary obstacle map for A* (1=obstacle, 0=free/unknown)
+        bmap = (map == OBSTACLE).astype(np.uint8)
+
+        # robot’s grid cell (row, col)
+        rrow = int((y_dim/2 + pose_y) * scale_y)
+        rcol = int((pose_x + x_dim/2) * scale_x)
+        robot_cell = (rrow, rcol)
+
+        # replan when interval elapses or path exhausted
+        if planning_counter >= planning_interval or current_waypoint_index >= len(current_path_world):
+        # if current_waypoint_index >= len(current_path_world):
+            planning_counter = 0
+
+            # collect all unexplored cells
+            unexplored_cells = list(zip(*np.where(map == UNEXPLORED)))
+            if not unexplored_cells:
+                print("Exploration complete!")
+                vL = vR = 0
+                break
+
+            # pick a random unexplored and attempt A*
+            random.shuffle(unexplored_cells)
+            target_cell = None
+            for cell in unexplored_cells:
+                configured_map = np.zeros(bmap.shape)
+                obstacle_detected = np.argwhere(bmap==1)
+                footprint_radius = 8
+                for x, y in obstacle_detected:
+                    x_min, x_max = max(0, x - footprint_radius), min(bmap.shape[0], x + footprint_radius)
+                    y_min, y_max = max(0, y - footprint_radius), min(bmap.shape[1], y + footprint_radius)
+                    configured_map[x_min:x_max, y_min:y_max] = 1
+                if not np.all(np.isin(configured_map, [0, 1])): print("Error in configured map: contains values other than 0 and 1")
+                plt.imshow(configured_map)
+                # plt.show()
+                np.save("configured_map.npy", configured_map)
+                plt.savefig("Configured_map.png")
+                path_grid = a_star(configured_map, robot_cell, cell)
+                if len(path_grid) > 1:
+                    target_cell = cell
+                    break
+                else:
+                    # mark unreachable as obstacle to avoid retry
+                    map[cell] = OBSTACLE
+
+            if target_cell is None:
+                print("No reachable unexplored cells remaining!")
+                vL = vR = 0
+                break
+
+            # convert to world waypoints, skipping the start
+            current_path_world = [
+                grid_to_world((r, c), scale_x, scale_y)
+                for (r, c) in path_grid[1:]
+            ]
+            current_waypoint_index = 0
+            print(f"Planned path to random unexplored {target_cell}, length {len(path_grid)}")
+            cmap = ListedColormap(['lightgray','lightgreen','black'])
+            plt.figure(figsize=(6,6))
+            # plt.scatter(frontier[0], frontier[1], marker='x', color='red', label='Frontier')
+            plt.imshow(map,               # your 0/1/2 array
+                    cmap=cmap,
+                    vmin=0, vmax=2,     # map 0→idx0, 1→idx1, 2→idx2
+                    origin='lower',
+                    interpolation='nearest')
             if path_grid:
-                current_path_world = [
-                    grid_to_world((cell[1], cell[0]), scale_x, scale_y)
-                    for cell in path_grid
-                ]
-                plt.scatter(riy,rix,marker='x',color='red')
-                map_display=map.copy()
-                map_display[map>0.5]=1
-                map_display[(map > 0) & (map <= 0.5)]=0.5
-                plt.imshow(map_display,origin='upper')
-                plt.savefig("path.png")
-                current_waypoint_index = 0
-                print(f"Planned path to unexplored cell {goal}, length {len(path_grid)}")
-            else:
-                print(f"No path to unexplored cell {goal}")
+                rows, cols = zip(*path_grid)
+                plt.plot(rows, cols,
+                        # marker='o',
+                        # markersize=4,
+                        # linewidth=2,
+                        color='yellow',
+                        label='Planned Path')
+            plt.colorbar( ticks=[0,1,2],
+                        label='0=unexplored, 1=free, 2=obstacle')
+            plt.savefig("path.png")
+            plt.close()
+            np.save("map.npy", map)
         if current_path_world:
             if current_waypoint_index >= len(current_path_world):
                 print("Reached end of path. Replanning...")
@@ -648,88 +775,66 @@ while robot.step(timestep) != -1:
                 #     current_waypoint_index += 1
             
     if state == "auto_map_rrt":
-        # Increment the planning counter each simulation step
         planning_counter += 1
 
-        # Convert your occupancy grid to a binary occupancy map
-        binary_map = (map > 0.5).astype(np.uint8)
-        # Compute the robot's current grid cell using your scale factors:
-        y_robot = int((y_dim/2 +pose_y) * scale_y)
-        x_robot = int((pose_x +x_dim/2) * scale_x)
-        # print("RY: ", y_robot, "RX: ", x_robot)
-        robot_cell = (y_robot, x_robot)
+        # build a binary map for planning: 1=obstacle, 0=walkable
+        bmap = (map == OBSTACLE).astype(np.uint8)
 
-        # Only perform expensive frontier detection and A* planning at the defined interval.
-        if planning_counter >= planning_interval:
-            np.save("map.npy", binary_map)
-            # print(map)
-            map_display=(binary_map*256**2+binary_map*256+binary_map)*255
-            plt.imshow(map_display,origin='upper')
-            plt.scatter(y_robot,x_robot,marker='x',color='red')
-            plt.savefig("map.png")
-            plt.close()
-            print("Map file saved")
-            planning_counter = 0  # Reset the counter after planning
+        # robot’s current grid cell (row, col)
+        rrow = int((y_dim/2 + pose_y) * scale_y)
+        rcol = int((pose_x + x_dim/2) * scale_x)
+        robot_cell = (rrow, rcol)
 
-            frontiers = detect_frontiers(map)
-            goal_cell = choose_frontier(robot_cell, frontiers)
-            if goal_cell is not None:
-                # path_grid = a_star(binary_map, robot_cell, goal_cell)
-                # # Convert the grid path to world coordinates:
-                # current_path_world = [grid_to_world(cell, scale_x, scale_y) for cell in path_grid]
-                # current_waypoint_index = 0
+        # only replan every planning_interval steps OR if we've exhausted our path
+        if planning_counter >= planning_interval or not current_path_world:
+            planning_counter = 0
 
-                # # --- New Code: Save an image overlaying the planned path ---
-                # # Plot the same map_display, overlay the robot position and the current path
-                # plt.imshow(map_display, origin='upper')
-                # # For consistency with the map display, use col for x and row for y.
-                # plt.scatter(y_robot, x_robot,marker='x', color='red')
-                # # Extract the grid coordinates from the planned path (swap row/col for plotting)
-                # path_rows = [cell[0] for cell in path_grid]
-                # path_cols = [cell[1] for cell in path_grid]
-                # print(path_rows, path_cols)
-                # plt.scatter(path_cols, path_rows, marker='x', color='blue')
-                # plt.savefig("path.png")
-                # plt.clf()  # Clear figure after saving
-                goal_world = grid_to_world(goal_cell, scale_x, scale_y)
-                start_point = np.array([pose_x, pose_y])
+            # 1) BFS to find nearest frontier = free cell with at least one UNEXPLORED neighbor
+            from collections import deque
+            visited = np.zeros_like(bmap, bool)
+            q = deque([robot_cell])
+            visited[robot_cell] = True
+            frontier = None
+            while q and frontier is None:
+                r, c = q.popleft()
+                # check if this free cell is adjacent to unknown
+                if map[r,c] == FREE:
+                    for dr,dc in ((1,0),(-1,0),(0,1),(0,-1)):
+                        nr, nc = r+dr, c+dc
+                        if 0<=nr<map.shape[0] and 0<=nc<map.shape[1]:
+                            if map[nr,nc] == UNEXPLORED:
+                                frontier = (r,c)
+                                break
+                # otherwise expand into other free cells
+                if frontier is None:
+                    for dr,dc in ((1,0),(-1,0),(0,1),(0,-1)):
+                        nr, nc = r+dr, c+dc
+                        if (0<=nr<map.shape[0] and 0<=nc<map.shape[1]
+                            and not visited[nr,nc]
+                            and map[nr,nc] == FREE):
+                            visited[nr,nc] = True
+                            q.append((nr,nc))
 
-                def state_is_valid(pt):
-                    cx = int((pt[0] + x_dim/2) * scale_x)
-                    cy = int((y_dim/2 + pt[1]) * scale_y)
-                    if 0 <= cx < binary_map.shape[0] and 0 <= cy < binary_map.shape[1]:
-                        return binary_map[cx][cy] == 0
-                    return False
-
-                state_bounds = np.array([[-x_dim/2, x_dim/2], [-y_dim/2, y_dim/2]])
-                nodes = rrt_star(state_bounds, None, state_is_valid, start_point, goal_world, k=500, delta_q=0.5)
-
-                closest_node = min(nodes, key=lambda node: np.linalg.norm(node.point - goal_world))
-                path = []
-                node = closest_node
-                while node is not None:
-                    path.append(node.point)
-                    node = node.parent
-                path.reverse()
-
-                current_path_world = path
-                current_waypoint_index = 0
-
-                # Save RRT* path visualization
-                plt.imshow(map_display, origin='upper')
-                path_rows = [int((y_dim/2 + pt[1]) * scale_y) for pt in path]
-                path_cols = [int((pt[0] + x_dim/2) * scale_x) for pt in path]
-                # print(path)
-                plt.plot(path_cols, path_rows, marker='x')
-                plt.savefig("rrt_path.png")
-                plt.clf()
-                # --- End New Code ---
-            else:
-                # No frontier found; exploration complete.
-                vL = 0
-                vR = 0
+            if frontier is None:
                 print("Exploration complete!")
-                break  # Optionally stop the controller
+                vL = vR = 0
+                break
+
+            # 2) plan with A*
+            path_grid = a_star(bmap, robot_cell, frontier)
+            if not path_grid:
+                print(f"✗ can’t reach frontier {frontier}, marking obstacle")
+                map[frontier] = OBSTACLE
+                current_path_world = []
+                # on next loop we’ll pick another frontier
+            else:
+                # convert grid path → world waypoints, dropping the starting cell
+                current_path_world = [
+                    grid_to_world((r,c), scale_x, scale_y)
+                    for (r,c) in path_grid[1:]
+                ]
+                current_waypoint_index = 0
+                print(f"Planned path to frontier {frontier}, length {len(path_grid)}")
 
         # Regardless of planning (which only updates every planning_interval steps),
         # the robot continues to follow the most recent plan.
@@ -756,41 +861,10 @@ while robot.step(timestep) != -1:
                 # Proceed to next waypoint if close enough:
                 if distance < 0.1:
                     current_waypoint_index += 1
-    #     print("MOVE LIDAR UP to z = 0.5 !!!!!!!!!")
-    #     # robot_parts[12].setPosition(0)
-    #     # robot_parts[13].setPosition(0)
-    #     time.sleep(2)
-
-    #     path = np.load("astar_path.npy")
-    #     drive_obj = drive_ik.Drive_IK_Controller(gps, compass, AXLE_LENGTH, RADIUS, MAX_SPEED)
-    #     drive_obj.start_path(path,pose_x,pose_y,pose_theta)
-    #     while robot.step(timestep) != -1:
-    #         l,r = drive_obj.path_step(pose_x,pose_y,pose_theta)
-    #         if (l,r) == (None,None):
-    #             break
-            
-    #         # map = mapping.map_current_view(map, translation.get_current_position(gps,compass), lidar, lidar_offsets, LIDAR_SENSOR_MAX_RANGE, translation.local_size, save_file="map.npy")
-    #         # plt.imsave("map.png", map)
-
-    #         robot_parts[MOTOR_LEFT].setVelocity(l)
-    #         robot_parts[MOTOR_RIGHT].setVelocity(r)
-    #     plt.imsave("map.png", map)    
-    #     robot_parts[MOTOR_LEFT].setVelocity(0)
-    #     robot_parts[MOTOR_RIGHT].setVelocity(0) 
-    #     # If we have reached our current waypoint or there is no valid path
-    #     # if not current_path_world or current_waypoint_index >= len(current_path_world):
-    #     #     planning_counter = planning_interval  # Force a replan on the next cycle.
-    # elif state == "path_processing":
-    #     robot_parts[MOTOR_LEFT].setVelocity(0)
-    #     robot_parts[MOTOR_RIGHT].setVelocity(0) 
-
-    #     print("generating path")
-    #     points = [(395,160),(395,120),(40,120),(40,50),(430,50),(430,280),(40,280),(40,200),(440,200)]
-    #     new_path = generate_complex_path("collection_map.npy", points, save_path_fname="astar_path.npy", save_img_fname="vis_with_path.png")
-    #     print("path generated")
-    #     break
-
-    
+        else:
+            # no valid plan right now → slowly rotate in place to gather new scans
+            vL = -0.2 * MAX_SPEED
+            vR =  0.2 * MAX_SPEED
 
     if state == "vision":
         vL = 0
