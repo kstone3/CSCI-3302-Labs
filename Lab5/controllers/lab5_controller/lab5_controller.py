@@ -247,6 +247,7 @@ if mode == 'planner':
     # plt.show()
     np.save("configured_map.npy", configured_map)
     plt.savefig("Configured_map.png")
+    plt.clf()
     # Part 2.3 continuation: Call path_planner
     # start_world_coords = (pose_x, pose_y)
     # end_world_coords = (pose_x + 1, pose_y + 1) # Replace with actual end coordinates
