@@ -473,6 +473,9 @@ current_waypoint_index = 0
 planning_interval = 500  
 planning_counter = 450
 obstacle_thresh = 0.5
+location_check_interval=10
+location_check_counter=0
+prev_location = None
 # ------------------------------------------------------------------
 # Helper Functions
 x_dim= 29.0
@@ -654,7 +657,7 @@ while robot.step(timestep) != -1:
             
     if state=="auto_map_astar":
         planning_counter += 1
-
+        location_check_counter += 1
         # binary obstacle map for A* (1=obstacle, 0=free/unknown)
         bmap = (map == OBSTACLE).astype(np.uint8)
         if not np.all(np.isin(bmap, [0, 1])):
@@ -664,6 +667,23 @@ while robot.step(timestep) != -1:
         rrow = int((y_dim/2 + pose_y) * scale_y)
         rcol = int((pose_x + x_dim/2) * scale_x)
         robot_cell = (rcol, rrow)
+        
+        if location_check_counter >= location_check_interval:
+            location_check_counter = 0
+            # check if robot has moved significantly
+            if prev_location is not None:
+                dx = pose_x - prev_location[0]
+                dy = pose_y - prev_location[1]
+                dtheta = pose_theta - prev_location[2]
+                while math.hypot(dx, dy) < 0.1 and abs(dtheta) < 0.1:
+                    print("===================Robot has not moved, backing up===================================")
+                    dx = pose_x - prev_location[0]
+                    dy = pose_y - prev_location[1]
+                    dtheta = pose_theta - prev_location[2]
+                    print("vL:", vL, "vR: ", vR)
+                    robot_parts["wheel_left_joint"].setVelocity(vL)
+                    robot_parts["wheel_right_joint"].setVelocity(vR)
+            prev_location = (pose_x, pose_y, pose_theta)
 
         # replan when interval elapses or path exhausted
         if planning_counter >= planning_interval or current_waypoint_index >= len(current_path_world):
@@ -713,7 +733,7 @@ while robot.step(timestep) != -1:
                             label='Planned Path')
                     np.save("configured_map.npy", configured_map)
                     plt.savefig("configured_map.png")
-                    plt.close()
+                plt.close()
                 if len(path_grid) > 1:
                     target_cell = cell
                     break
@@ -770,8 +790,10 @@ while robot.step(timestep) != -1:
             alpha = theta_g - pose_theta-np.pi  # Difference from robot's heading
             if alpha<-np.pi:
                 alpha += 2*np.pi
-            vL=max(min(-8*alpha+12.56*rho, MAX_SPEED*0.5),-MAX_SPEED*0.5)
-            vR=max(min(8*alpha+12.56*rho, MAX_SPEED*0.5),-MAX_SPEED*0.5)
+            vL=max(min(-8*alpha+12.56*rho, MAX_SPEED*0.7),-MAX_SPEED*0.7)
+            vR=max(min(8*alpha+12.56*rho, MAX_SPEED*0.7),-MAX_SPEED*0.7)
+            if vL<0.1: vL=0.1
+            if vR<0.1: vR=0.1
             # vL=max(min(-12*alpha+12.56*rho, MAX_SPEED*0.5),-MAX_SPEED*0.5)
             # vR=max(min(12*alpha+12.56*rho, MAX_SPEED*0.5),-MAX_SPEED*0.5)
             print(f"alpha={alpha:.2f}, rho={rho:.2f}")
@@ -796,7 +818,7 @@ while robot.step(timestep) != -1:
         # robot’s current grid cell (row, col)
         rrow = int((y_dim/2 + pose_y) * scale_y)
         rcol = int((pose_x + x_dim/2) * scale_x)
-        robot_cell = (rrow, rcol)
+        robot_cell = (rcol, rrow)
 
         # replan when interval elapses or path exhausted
         if planning_counter >= planning_interval or current_waypoint_index >= len(current_path_world):
@@ -868,15 +890,15 @@ while robot.step(timestep) != -1:
             print(f"Planned RRT path to frontier {target_cell}, length {len(path_pts)}")
 
             # visualize on grid
-            grid_path = [(int((y_dim/2 + p[1]) * scale_y), int((p[0] + x_dim/2) * scale_x)) for p in path_pts]
+            grid_path = [(int((p[0] + x_dim/2) * scale_x),int((y_dim/2 + p[1]) * scale_y)) for p in path_pts]
             plt.figure(figsize=(6,6))
             plt.imshow(configured_map,
                        origin='lower',
                        cmap='viridis',
                        vmin=0, vmax=1)
             if grid_path:
-                rows, cols = zip(*grid_path)
-                plt.plot(rows, cols,
+                cols, rows = zip(*grid_path)
+                plt.plot(cols, rows,
                          color='red',
                          label='Planned Path')
             np.save("configured_map.npy", configured_map)
@@ -887,8 +909,8 @@ while robot.step(timestep) != -1:
             plt.figure(figsize=(6,6))
             plt.imshow(map, cmap=cmap, vmin=0, vmax=2, origin='lower', interpolation='nearest')
             if grid_path:
-                rows, cols = zip(*grid_path)
-                plt.plot(rows, cols, color='red')
+                cols, rows = zip(*grid_path)
+                plt.plot(cols, rows, color='red')
             plt.colorbar(ticks=[0,1,2], label='0=unexplored, 1=free, 2=obstacle')
             plt.savefig("path.png")
             plt.close()
@@ -911,6 +933,8 @@ while robot.step(timestep) != -1:
                 alpha += 2*np.pi
             vL=max(min(-8*alpha+12.56*rho, MAX_SPEED*0.7),-MAX_SPEED*0.7)
             vR=max(min(8*alpha+12.56*rho, MAX_SPEED*0.7),-MAX_SPEED*0.7)
+            if vL<0.1: vL=0
+            if vR<0.1: vR=0
             print(f"alpha={alpha:.2f}, rho={rho:.2f}")
             if rho<0.15: 
                 if current_waypoint_index < len(current_path_world) - 1: current_waypoint_index += 1
