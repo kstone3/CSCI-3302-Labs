@@ -675,14 +675,14 @@ while robot.step(timestep) != -1:
                 dx = pose_x - prev_location[0]
                 dy = pose_y - prev_location[1]
                 dtheta = pose_theta - prev_location[2]
-                while math.hypot(dx, dy) < 0.1 and abs(dtheta) < 0.1:
-                    print("===================Robot has not moved, backing up===================================")
-                    dx = pose_x - prev_location[0]
-                    dy = pose_y - prev_location[1]
-                    dtheta = pose_theta - prev_location[2]
-                    print("vL:", vL, "vR: ", vR)
-                    robot_parts["wheel_left_joint"].setVelocity(vL)
-                    robot_parts["wheel_right_joint"].setVelocity(vR)
+                if math.hypot(dx, dy) < 0.1 and abs(dtheta) < 0.1:
+                    print("Robot stuck, backing up one step==========================")
+                    # give it a quick jolt backward or rotate
+                    robot_parts["wheel_left_joint"].setVelocity(-0.2 * MAX_SPEED)
+                    robot_parts["wheel_right_joint"].setVelocity(-0.2 * MAX_SPEED)
+                    # then skip planning this cycle so it actually moves
+                    prev_location = (pose_x, pose_y, pose_theta)
+                    continue  # back to robot.step()
             prev_location = (pose_x, pose_y, pose_theta)
 
         # replan when interval elapses or path exhausted
@@ -792,8 +792,8 @@ while robot.step(timestep) != -1:
                 alpha += 2*np.pi
             vL=max(min(-8*alpha+12.56*rho, MAX_SPEED*0.7),-MAX_SPEED*0.7)
             vR=max(min(8*alpha+12.56*rho, MAX_SPEED*0.7),-MAX_SPEED*0.7)
-            if vL<0.1: vL=0.1
-            if vR<0.1: vR=0.1
+            # if vL<0.05: vL=0.05
+            # if vR<0.05: vR=0.05
             # vL=max(min(-12*alpha+12.56*rho, MAX_SPEED*0.5),-MAX_SPEED*0.5)
             # vR=max(min(12*alpha+12.56*rho, MAX_SPEED*0.5),-MAX_SPEED*0.5)
             print(f"alpha={alpha:.2f}, rho={rho:.2f}")
