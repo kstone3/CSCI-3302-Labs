@@ -372,7 +372,8 @@ lidar_offsets = lidar_offsets[83:len(lidar_offsets)-83] # Only keep lidar readin
 # map = np.zeros(shape=[360,360])
 map=np.load("map.npy") if path.exists("map.npy") else np.zeros(shape=[360,360])
 state="auto_map_rrt"  # "manual_map", "auto_map_astar", "auto_map_rrt"
-# state = "vision"
+#state = "vision"
+#state = "manual_map"
 current_path_world = []  # List of waypoints (in world coords)
 current_waypoint_index = 0
 # Define the planning update frequency (e.g., every 50 timesteps)
@@ -414,6 +415,33 @@ while robot.step(timestep) != -1:
     lidar_sensor_readings = lidar_sensor_readings[83:len(lidar_sensor_readings)-83]
     robot_gx = int((pose_x + x_dim/2) * scale_x)
     robot_gy = int((y_dim/2 + pose_y) * scale_y)
+
+    image_data = camera.getImage()
+    dark_yellow = np.array([25, 100, 100])
+    light_yellow = np.array([30, 255, 255])
+    # Webots images are 4-channel (BGRA), convert to 3-channel BGR for OpenCV
+    if image_data:
+        img = np.frombuffer(image_data, np.uint8).reshape(
+            (camera.getHeight(), camera.getWidth(), 4)
+        )
+        img_bgr = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        img_hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(img_hsv, dark_yellow, light_yellow)
+        res = cv2.bitwise_and(img_bgr, img_bgr, mask=mask)
+        contours, _ = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for contour in contours:
+            if cv2.contourArea(contour) > 10:
+                x, y, w, h = cv2.boundingRect(contour)
+                cv2.rectangle(img_bgr, (x, y), (x+w, y+h), (0, 255, 255), 2)
+                cv2.putText(img_bgr, 'Yellow Object', (x, y-10), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+        
+        cv2.imshow('Yellow Object Detection', img_bgr)
+        yellow_objects = [c for c in contours if cv2.contourArea(c) > 10]
+        if yellow_objects:
+            print(f"Detected {len(yellow_objects)} yellow object(s)")
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
     # process each lidar beam
     # process each lidar beam
@@ -999,35 +1027,35 @@ while robot.step(timestep) != -1:
             vR =  0.2 * MAX_SPEED
 
 
-    if state == "vision":
-        vL = 0
-        vR = 0
-        image_data = camera.getImage()
-        dark_yellow = np.array([20, 100, 100])
-        light_yellow = np.array([30, 255, 255])
-    # Webots images are 4-channel (BGRA), convert to 3-channel BGR for OpenCV
-    if image_data:
-        img = np.frombuffer(image_data, np.uint8).reshape(
-            (camera.getHeight(), camera.getWidth(), 4)
-        )
-        img_bgr = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-        img_hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(img_hsv, dark_yellow, light_yellow)
-        res = cv2.bitwise_and(img_bgr, img_bgr, mask=mask)
-        contours, _ = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        for contour in contours:
-            if cv2.contourArea(contour) > 10:
-                x, y, w, h = cv2.boundingRect(contour)
-                cv2.rectangle(img_bgr, (x, y), (x+w, y+h), (0, 255, 255), 2)
-                cv2.putText(img_bgr, 'Yellow Object', (x, y-10), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+    # if state == "vision":
+    #     vL = 0
+    #     vR = 0
+    #     image_data = camera.getImage()
+    #     dark_yellow = np.array([20, 100, 100])
+    #     light_yellow = np.array([30, 255, 255])
+    # # Webots images are 4-channel (BGRA), convert to 3-channel BGR for OpenCV
+    # if image_data:
+    #     img = np.frombuffer(image_data, np.uint8).reshape(
+    #         (camera.getHeight(), camera.getWidth(), 4)
+    #     )
+    #     img_bgr = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+    #     img_hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+    #     mask = cv2.inRange(img_hsv, dark_yellow, light_yellow)
+    #     res = cv2.bitwise_and(img_bgr, img_bgr, mask=mask)
+    #     contours, _ = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    #     for contour in contours:
+    #         if cv2.contourArea(contour) > 10:
+    #             x, y, w, h = cv2.boundingRect(contour)
+    #             cv2.rectangle(img_bgr, (x, y), (x+w, y+h), (0, 255, 255), 2)
+    #             cv2.putText(img_bgr, 'Yellow Object', (x, y-10), 
+    #                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
         
-        cv2.imshow('Yellow Object Detection', img_bgr)
-        yellow_objects = [c for c in contours if cv2.contourArea(c) > 10]
-        if yellow_objects:
-            print(f"Detected {len(yellow_objects)} yellow object(s)")
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+    #     cv2.imshow('Yellow Object Detection', img_bgr)
+    #     yellow_objects = [c for c in contours if cv2.contourArea(c) > 10]
+    #     if yellow_objects:
+    #         print(f"Detected {len(yellow_objects)} yellow object(s)")
+    #     if cv2.waitKey(1) & 0xFF == ord('q'):
+    #         break
 
     print("vL:", vL, "vR: ", vR)
     robot_parts["wheel_left_joint"].setVelocity(vL)
