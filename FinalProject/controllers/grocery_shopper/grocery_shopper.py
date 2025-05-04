@@ -294,35 +294,67 @@ def is_colinear(p1, p2, p3, tol=1e-6):
     # 2D cross product magnitude
     return abs(v1[0]*v2[1] - v1[1]*v2[0]) < tol
 
-def smooth_path(path, state_valid_w):
-    """Shortcut smoothing + colinearity pruning."""
-    if not path:
-        return []
+# def smooth_path(path, state_valid_w):
+#     """Shortcut smoothing + colinearity pruning."""
+#     if not path:
+#         return []
 
-    # 1) Shortcut-based smoothing
-    smoothed = [path[0]]
-    i = 0
-    n = len(path)
-    while i < n - 1:
-        j = n - 1
-        while j > i and not is_line_valid(path[i], path[j], state_valid_w):
-            j -= 1
-        smoothed.append(path[j])
-        i = j
+#     # 1) Shortcut-based smoothing
+#     smoothed = [path[0]]
+#     i = 0
+#     n = len(path)
+#     while i < n - 1:
+#         j = n - 1
+#         while j > i and not is_line_valid(path[i], path[j], state_valid_w):
+#             j -= 1
+#         smoothed.append(path[j])
+#         i = j
 
-    # 2) Remove intermediate points on straight segments
-    pruned = [smoothed[0]]
-    for pt in smoothed[1:]:
+#     # 2) Remove intermediate points on straight segments
+#     pruned = [smoothed[0]]
+#     for pt in smoothed[1:]:
+#         pruned.append(pt)
+#         # while the last three are colinear, drop the middle
+#         while len(pruned) >= 3:
+#             p1, p2, p3 = np.array(pruned[-3]), np.array(pruned[-2]), np.array(pruned[-1])
+#             if is_colinear(p1, p2, p3):
+#                 pruned.pop(-2)
+#             else:
+#                 break
+
+#     return pruned
+
+def smooth_path(path, tol=1e-6):
+    """
+    Prune colinear points from a path.
+    
+    - path: list of [x, y], (x, y), or array([x, y])
+    - tol: tolerance for colinearity (cross‐product ≈ 0)
+    
+    Returns:
+      List of (x, y) tuples, in the same order, with all straight-line intermediates removed.
+    """
+    if len(path) < 3:
+        # nothing to prune
+        return [tuple(p) for p in path]
+
+    pruned = [tuple(path[0]), tuple(path[1])]
+    for raw_pt in path[2:]:
+        pt = tuple(raw_pt)
         pruned.append(pt)
-        # while the last three are colinear, drop the middle
+        # keep pruning as long as the last three are colinear
         while len(pruned) >= 3:
-            p1, p2, p3 = np.array(pruned[-3]), np.array(pruned[-2]), np.array(pruned[-1])
-            if is_colinear(p1, p2, p3):
+            (x1, y1), (x2, y2), (x3, y3) = pruned[-3], pruned[-2], pruned[-1]
+            # 2D cross‐product test
+            cross = (x2 - x1)*(y3 - y2) - (y2 - y1)*(x3 - x2)
+            if abs(cross) < tol:
+                # middle point is unnecessary
                 pruned.pop(-2)
             else:
                 break
 
     return pruned
+
 
 def grid_to_world(cell, scale_x, scale_y):
     col,row = cell
@@ -371,7 +403,7 @@ lidar_offsets = lidar_offsets[83:len(lidar_offsets)-83] # Only keep lidar readin
 
 # map = np.zeros(shape=[360,360])
 map=np.load("map.npy") if path.exists("map.npy") else np.zeros(shape=[360,360])
-state="auto_map_rrt"  # "manual_map", "auto_map_astar", "auto_map_rrt"
+state="auto_map_astar"  # "manual_map", "auto_map_astar", "auto_map_rrt"
 # state = "vision"
 current_path_world = []  # List of waypoints (in world coords)
 current_waypoint_index = 0
@@ -517,38 +549,33 @@ while robot.step(timestep) != -1:
     if state=="auto_map_astar":
         planning_counter += 1
         location_check_counter += 1
-        # binary obstacle map for A* (1=obstacle, 0=free/unknown)
         bmap = (map == OBSTACLE).astype(np.uint8)
         if not np.all(np.isin(bmap, [0, 1])):
             print("Error in bmap: contains values other than 0 and 1")
             break
-        # robot’s grid cell (row, col)
+        
         rrow = int((y_dim/2 + pose_y) * scale_y)
         rcol = int((pose_x + x_dim/2) * scale_x)
         robot_cell = (rcol, rrow)
         
         if location_check_counter >= location_check_interval:
             location_check_counter = 0
-            # check if robot has moved significantly
             if prev_location is not None:
                 dx = pose_x - prev_location[0]
                 dy = pose_y - prev_location[1]
                 dtheta = pose_theta - prev_location[2]
                 if math.hypot(dx, dy) < 0.1 and abs(dtheta) < 0.1:
                     print("Robot stuck, backing up one step=========================================================")
-                    # give it a quick jolt backward or rotate
                     robot_parts["wheel_left_joint"].setVelocity(-0.8 * MAX_SPEED)
                     robot_parts["wheel_right_joint"].setVelocity(-0.8 * MAX_SPEED)
-                    # then skip planning this cycle so it actually moves
+                    for i in range(10):
+                        robot.step(timestep)
                     prev_location = (pose_x, pose_y, pose_theta)
-                    continue  # back to robot.step()
+                    continue
             prev_location = (pose_x, pose_y, pose_theta)
 
-        # replan when interval elapses or path exhausted
         if planning_counter >= planning_interval or current_waypoint_index >= len(current_path_world):
-        # if current_waypoint_index >= len(current_path_world):
             planning_counter = 0
-            # collect all unexplored cells
             configured_map = np.zeros(bmap.shape)
             obstacle_detected = np.argwhere(bmap==1)
             configured_map[obstacle_detected[:,0], obstacle_detected[:,1]] = 1
@@ -565,27 +592,18 @@ while robot.step(timestep) != -1:
                 print("Exploration complete!")
                 vL = vR = 0
                 break
-            # pick a random unexplored and attempt A*
             target_cell = None
             path_grid = []
-            max_dist=0
-            min_dist=np.inf
             rx, ry = robot_cell
             tree = KDTree(list(unexplored_cells))
             indices = {i: cell for i, cell in enumerate(unexplored_cells)}
-
             while len(path_grid) <= 1:
-                # remove already-explored points from the tree by masking:
                 mask = [cell not in explored_cells for cell in indices.values()]
                 if not any(mask):
                     print("No reachable unexplored cells remaining!")
                     vL = vR = 0
                     break
-
-                # query the nearest remaining point
-                dists, idxs = tree.query([rx, ry],
-                             k=len(indices),
-                             workers=1)
+                dists, idxs = tree.query([rx, ry],k=len(indices),workers=1)
                 for d, idx in zip(dists, idxs):
                     if d >= 5:
                         cell = indices[idx]
@@ -612,10 +630,8 @@ while robot.step(timestep) != -1:
                     plt.savefig("configured_map.png")
                 plt.close()
 
-            # convert to world waypoints, skipping the start
             current_path_world = [grid_to_world((c,r), scale_x, scale_y)for (c,r) in path_grid[1:]]
             current_waypoint_index = 0
-            print(f"Planned path to random unexplored {target_cell}, length {len(path_grid)}")
             cmap = ListedColormap(['lightgray','lightgreen','black'])
             plt.figure(figsize=(6,6))
             plt.imshow(map,cmap=cmap,vmin=0, vmax=2,origin='upper',interpolation='nearest')
@@ -636,9 +652,9 @@ while robot.step(timestep) != -1:
             wp = current_path_world[current_waypoint_index]
             x_goal,y_goal=wp
             print("Y_goal: ", y_goal, "X_goal: ", x_goal)
-            rho=np.sqrt((x_goal - pose_x) ** 2 + (y_goal - pose_y) ** 2)  # Distance to the goal
-            theta_g = np.arctan2(y_goal - pose_y, x_goal - pose_x)  # Angle to the goal
-            alpha = theta_g - pose_theta-np.pi  # Difference from robot's heading
+            rho=np.sqrt((x_goal - pose_x) ** 2 + (y_goal - pose_y) ** 2)
+            theta_g = np.arctan2(y_goal - pose_y, x_goal - pose_x)
+            alpha = theta_g - pose_theta-np.pi
             if alpha<-np.pi:
                 alpha += 2*np.pi
             vL=max(min(-12*alpha+12.56*rho, MAX_SPEED*0.5),-MAX_SPEED*0.5)
@@ -653,45 +669,39 @@ while robot.step(timestep) != -1:
                     vL=0
                     vR=0
         else:
-            # no valid plan: rotate in place
             vL = -0.2 * MAX_SPEED
             vR =  0.2 * MAX_SPEED
             
     if state=="auto_map_rrt":
         planning_counter += 1
         location_check_counter += 1
-        # binary obstacle map for A* (1=obstacle, 0=free/unknown)
         bmap = (map == OBSTACLE).astype(np.uint8)
         if not np.all(np.isin(bmap, [0, 1])):
             print("Error in bmap: contains values other than 0 and 1")
             break
-        # robot’s grid cell (row, col)
+
         rrow = int((y_dim/2 + pose_y) * scale_y)
         rcol = int((pose_x + x_dim/2) * scale_x)
         robot_cell = (rcol, rrow)
         
         if location_check_counter >= location_check_interval:
             location_check_counter = 0
-            # check if robot has moved significantly
             if prev_location is not None:
                 dx = pose_x - prev_location[0]
                 dy = pose_y - prev_location[1]
                 dtheta = pose_theta - prev_location[2]
                 if math.hypot(dx, dy) < 0.1 and abs(dtheta) < 0.1:
                     print("Robot stuck, backing up one step=========================================================")
-                    # give it a quick jolt backward or rotate
                     robot_parts["wheel_left_joint"].setVelocity(-0.8 * MAX_SPEED)
                     robot_parts["wheel_right_joint"].setVelocity(-0.8 * MAX_SPEED)
-                    # then skip planning this cycle so it actually moves
+                    for i in range(10):
+                        robot.step(timestep)
                     prev_location = (pose_x, pose_y, pose_theta)
-                    continue  # back to robot.step()
+                    continue
             prev_location = (pose_x, pose_y, pose_theta)
 
-        # replan when interval elapses or path exhausted
         if planning_counter >= planning_interval or current_waypoint_index >= len(current_path_world):
-        # if current_waypoint_index >= len(current_path_world):
             planning_counter = 0
-            # collect all unexplored cells
             configured_map = np.zeros(bmap.shape)
             obstacle_detected = np.argwhere(bmap==1)
             configured_map[obstacle_detected[:,0], obstacle_detected[:,1]] = 1
@@ -708,26 +718,19 @@ while robot.step(timestep) != -1:
                 print("Exploration complete!")
                 vL = vR = 0
                 break
-            # pick a random unexplored and attempt A*
             target_cell = None
             path_pts = []
-            max_dist=0
-            min_dist=np.inf
             rx, ry = robot_cell
             tree = KDTree(list(unexplored_cells))
             indices = {i: cell for i, cell in enumerate(unexplored_cells)}
             while len(path_pts) <= 1:
-                # remove already-explored points from the tree by masking:
                 mask = [cell not in explored_cells for cell in indices.values()]
                 if not any(mask):
                     print("No reachable unexplored cells remaining!")
                     vL = vR = 0
                     break
 
-                # query the nearest remaining point
-                dists, idxs = tree.query([rx, ry],
-                             k=len(indices),
-                             workers=1)
+                dists, idxs = tree.query([rx, ry], k=len(indices), workers=1)
                 for d, idx in zip(dists, idxs):
                     if d >= 5:
                         cell = indices[idx]
@@ -740,21 +743,15 @@ while robot.step(timestep) != -1:
                     break
                 explored_cells.append(target_cell)
                 def state_valid_w(pt):
-                    # world coords --> grid indices, in the same order you used above for map[gx, gy]
                     gx = int((pt[0] + x_dim/2) * scale_x)
                     gy = int((y_dim/2 + pt[1]) * scale_y)
-                    # boundary check
                     if gx < 0 or gx >= configured_map.shape[0] or gy < 0 or gy >= configured_map.shape[1]:
                         return False
-                    # only free if configured_map[gx, gy] == 0
                     return configured_map[gx, gy] == 0
-                # set up continuous start/goal
                 start_w = np.array([pose_x, pose_y])
                 goal_w  = grid_to_world(cell, scale_x, scale_y)
-                # run RRT* to generate a tree
                 bounds = np.array([[-x_dim/2, x_dim/2], [-y_dim/2, y_dim/2]])
                 nodes = rrt_star(bounds, None, state_valid_w,start_w, goal_w,k=500, delta_q=0.5)
-                # backtrack best node to form a path
                 dists = [np.linalg.norm(n.point - goal_w) for n in nodes]
                 best = nodes[np.argmin(dists)]
                 path_pts = []
@@ -763,7 +760,6 @@ while robot.step(timestep) != -1:
                     path_pts.append(curr.point)
                     curr = curr.parent
                 path_pts.reverse()
-            # only accept if we got more than the start point
             if len(path_pts) > 1:
                 target_cell = cell
                 cmap = ListedColormap(['purple','yellow'])
@@ -778,8 +774,6 @@ while robot.step(timestep) != -1:
                 print("No reachable unexplored cells remaining!")
                 vL = vR = 0
                 break
-           # use continuous world coordinates directly
-            # use the valid path you just found
             current_path_world   = path_pts[1:]
             current_waypoint_index = 0
             print(f"Planned path to random unexplored {target_cell}, length {len(path_pts)}")
@@ -787,11 +781,8 @@ while robot.step(timestep) != -1:
             plt.figure(figsize=(6,6))
             plt.imshow(map,cmap=cmap,vmin=0, vmax=2,origin='upper',interpolation='nearest')
             if path_pts:
-                # best_path_pts is a list of [wx,wy] in meters
-                # convert each to grid‐pixel coordinates
                 xs = [ (pt[0] + x_dim/2) * scale_x for pt in path_pts ]
                 ys = [ (pt[1] + y_dim/2) * scale_y for pt in path_pts ]
-                # plot in red
                 plt.plot(ys,xs,linewidth=2,color='red',label='Planned Path')
             plt.colorbar(ticks=[0,1,2],label='0=unexplored, 1=free, 2=obstacle')
             plt.savefig("path.png")
@@ -807,13 +798,13 @@ while robot.step(timestep) != -1:
             wp = current_path_world[current_waypoint_index]
             x_goal,y_goal=wp
             print("Y_goal: ", y_goal, "X_goal: ", x_goal)
-            rho=np.sqrt((x_goal - pose_x) ** 2 + (y_goal - pose_y) ** 2)  # Distance to the goal
-            theta_g = np.arctan2(y_goal - pose_y, x_goal - pose_x)  # Angle to the goal
-            alpha = theta_g - pose_theta-np.pi  # Difference from robot's heading
+            rho=np.sqrt((x_goal - pose_x) ** 2 + (y_goal - pose_y) ** 2) 
+            theta_g = np.arctan2(y_goal - pose_y, x_goal - pose_x)
+            alpha = theta_g - pose_theta-np.pi 
             if alpha<-np.pi:
                 alpha += 2*np.pi
-            vL=max(min(-8*alpha+12.56*rho, MAX_SPEED*0.7),-MAX_SPEED*0.7)
-            vR=max(min(8*alpha+12.56*rho, MAX_SPEED*0.7),-MAX_SPEED*0.7)
+            vL=max(min(-12*alpha+12.56*rho, MAX_SPEED*0.7),-MAX_SPEED*0.7)
+            vR=max(min(12*alpha+12.56*rho, MAX_SPEED*0.7),-MAX_SPEED*0.7)
             print(f"alpha={alpha:.2f}, rho={rho:.2f}")
             if rho<0.15: 
                 if current_waypoint_index < len(current_path_world) - 1: current_waypoint_index += 1
@@ -823,45 +814,39 @@ while robot.step(timestep) != -1:
                     vL=0
                     vR=0
         else:
-            # no valid plan: rotate in place
             vL = -0.2 * MAX_SPEED
             vR =  0.2 * MAX_SPEED
             
     if state == "auto_map_rrt_smooth":
         planning_counter += 1
         location_check_counter += 1
-        # binary obstacle map for A* (1=obstacle, 0=free/unknown)
         bmap = (map == OBSTACLE).astype(np.uint8)
         if not np.all(np.isin(bmap, [0, 1])):
             print("Error in bmap: contains values other than 0 and 1")
             break
-        # robot’s grid cell (row, col)
+
         rrow = int((y_dim/2 + pose_y) * scale_y)
         rcol = int((pose_x + x_dim/2) * scale_x)
         robot_cell = (rcol, rrow)
         
         if location_check_counter >= location_check_interval:
             location_check_counter = 0
-            # check if robot has moved significantly
             if prev_location is not None:
                 dx = pose_x - prev_location[0]
                 dy = pose_y - prev_location[1]
                 dtheta = pose_theta - prev_location[2]
                 if math.hypot(dx, dy) < 0.1 and abs(dtheta) < 0.1:
                     print("Robot stuck, backing up one step=========================================================")
-                    # give it a quick jolt backward or rotate
                     robot_parts["wheel_left_joint"].setVelocity(-0.8 * MAX_SPEED)
                     robot_parts["wheel_right_joint"].setVelocity(-0.8 * MAX_SPEED)
-                    # then skip planning this cycle so it actually moves
+                    for i in range(10):
+                        robot.step(timestep)
                     prev_location = (pose_x, pose_y, pose_theta)
-                    continue  # back to robot.step()
+                    continue 
             prev_location = (pose_x, pose_y, pose_theta)
 
-        # replan when interval elapses or path exhausted
         if planning_counter >= planning_interval or current_waypoint_index >= len(current_path_world):
-        # if current_waypoint_index >= len(current_path_world):
             planning_counter = 0
-            # collect all unexplored cells
             configured_map = np.zeros(bmap.shape)
             obstacle_detected = np.argwhere(bmap==1)
             configured_map[obstacle_detected[:,0], obstacle_detected[:,1]] = 1
@@ -878,7 +863,6 @@ while robot.step(timestep) != -1:
                 print("Exploration complete!")
                 vL = vR = 0
                 break
-            # pick a random unexplored and attempt A*
             target_cell = None
             path_pts = []
             max_dist=0
@@ -887,17 +871,12 @@ while robot.step(timestep) != -1:
             tree = KDTree(list(unexplored_cells))
             indices = {i: cell for i, cell in enumerate(unexplored_cells)}
             while len(path_pts) <= 1:
-                # remove already-explored points from the tree by masking:
                 mask = [cell not in explored_cells for cell in indices.values()]
                 if not any(mask):
                     print("No reachable unexplored cells remaining!")
                     vL = vR = 0
                     break
-
-                # query the nearest remaining point
-                dists, idxs = tree.query([rx, ry],
-                             k=len(indices),
-                             workers=1)
+                dists, idxs = tree.query([rx, ry], k=len(indices), workers=1)
                 for d, idx in zip(dists, idxs):
                     if d >= 5:
                         cell = indices[idx]
@@ -910,21 +889,15 @@ while robot.step(timestep) != -1:
                     break
                 explored_cells.append(target_cell)
                 def state_valid_w(pt):
-                    # world coords --> grid indices, in the same order you used above for map[gx, gy]
                     gx = int((pt[0] + x_dim/2) * scale_x)
                     gy = int((y_dim/2 + pt[1]) * scale_y)
-                    # boundary check
                     if gx < 0 or gx >= configured_map.shape[0] or gy < 0 or gy >= configured_map.shape[1]:
                         return False
-                    # only free if configured_map[gx, gy] == 0
                     return configured_map[gx, gy] == 0
-                # set up continuous start/goal
                 start_w = np.array([pose_x, pose_y])
                 goal_w  = grid_to_world(target_cell, scale_x, scale_y)
-                # run RRT* to generate a tree
                 bounds = np.array([[-x_dim/2, x_dim/2], [-y_dim/2, y_dim/2]])
                 nodes = rrt_star(bounds, None, state_valid_w,start_w, goal_w,k=500, delta_q=0.5)
-                # backtrack best node to form a path
                 dists = [np.linalg.norm(n.point - goal_w) for n in nodes]
                 best = nodes[np.argmin(dists)]
                 path_pts = []
@@ -933,38 +906,37 @@ while robot.step(timestep) != -1:
                     path_pts.append(curr.point)
                     curr = curr.parent
                 path_pts.reverse()
-            smooth_path_pts=smooth_path(path_pts, state_valid_w)
-            # only accept if we got more than the start point
+            smooth_path_pts=smooth_path(path_pts)
+            # smooth_path_pts=path_pts
             if len(smooth_path_pts) > 1:
                 target_cell = cell
                 cmap = ListedColormap(['purple','yellow'])
                 plt.imshow(configured_map,origin='upper',cmap=cmap,vmin=0, vmax=1)
-                if smooth_path:
-                    rows, cols = zip(*smooth_path_pts)
-                    plt.plot(cols, rows, color='red', label='Planned Path')
-                    np.save("configured_map.npy", configured_map)
-                    plt.savefig("configured_map.png")
+                rows, cols = zip(*smooth_path_pts)
+                plt.plot(cols, rows, color='red', label='Planned Path')
+                np.save("configured_map.npy", configured_map)
+                plt.savefig("configured_map.png")
                 plt.close()
             if target_cell is None:
                 print("No reachable unexplored cells remaining!")
                 vL = vR = 0
                 break
-           # use continuous world coordinates directly
-            # use the valid path you just found
-            current_path_world   = smooth_path_pts[1:]
+            current_path_world   = smooth_path_pts[::1]
             current_waypoint_index = 0
             print(f"Planned path to random unexplored {target_cell}, length {len(smooth_path_pts)}")
             cmap = ListedColormap(['lightgray','lightgreen','black'])
             plt.figure(figsize=(6,6))
             plt.imshow(map,cmap=cmap,vmin=0, vmax=2,origin='upper',interpolation='nearest')
             if smooth_path_pts:
-                # best_path_pts is a list of [wx,wy] in meters
-                # convert each to grid‐pixel coordinates
                 xs = [ (pt[0] + x_dim/2) * scale_x for pt in smooth_path_pts ]
                 ys = [ (pt[1] + y_dim/2) * scale_y for pt in smooth_path_pts ]
-                # plot in red
+                xp = [ (pt[0] + x_dim/2) * scale_x for pt in path_pts ]
+                yp = [ (pt[1] + y_dim/2) * scale_y for pt in path_pts ]
                 plt.plot(ys,xs,linewidth=2,color='red',label='Planned Path')
+                plt.plot(yp, xp, color='blue', label='RRT Path')
             plt.colorbar(ticks=[0,1,2],label='0=unexplored, 1=free, 2=obstacle')
+            plt.legend()
+            plt.title(f'Smoothed path is {len(smooth_path_pts)} steps, RRT path is {len(path_pts)} steps')
             plt.savefig("path.png")
             plt.close()
             np.save("map.npy", map)
@@ -978,13 +950,13 @@ while robot.step(timestep) != -1:
             wp = current_path_world[current_waypoint_index]
             x_goal,y_goal=wp
             print("Y_goal: ", y_goal, "X_goal: ", x_goal)
-            rho=np.sqrt((x_goal - pose_x) ** 2 + (y_goal - pose_y) ** 2)  # Distance to the goal
-            theta_g = np.arctan2(y_goal - pose_y, x_goal - pose_x)  # Angle to the goal
-            alpha = theta_g - pose_theta-np.pi  # Difference from robot's heading
+            rho=np.sqrt((x_goal - pose_x) ** 2 + (y_goal - pose_y) ** 2) 
+            theta_g = np.arctan2(y_goal - pose_y, x_goal - pose_x)
+            alpha = theta_g - pose_theta-np.pi
             if alpha<-np.pi:
                 alpha += 2*np.pi
-            vL=max(min(-8*alpha+12.56*rho, MAX_SPEED*0.7),-MAX_SPEED*0.7)
-            vR=max(min(8*alpha+12.56*rho, MAX_SPEED*0.7),-MAX_SPEED*0.7)
+            vL=max(min(-12*alpha+12.56*rho, MAX_SPEED*0.7),-MAX_SPEED*0.7)
+            vR=max(min(12*alpha+12.56*rho, MAX_SPEED*0.7),-MAX_SPEED*0.7)
             print(f"alpha={alpha:.2f}, rho={rho:.2f}")
             if rho<0.15: 
                 if current_waypoint_index < len(current_path_world) - 1: current_waypoint_index += 1
@@ -994,7 +966,6 @@ while robot.step(timestep) != -1:
                     vL=0
                     vR=0
         else:
-            # no valid plan: rotate in place
             vL = -0.2 * MAX_SPEED
             vR =  0.2 * MAX_SPEED
 
@@ -1032,3 +1003,5 @@ while robot.step(timestep) != -1:
     print("vL:", vL, "vR: ", vR)
     robot_parts["wheel_left_joint"].setVelocity(vL)
     robot_parts["wheel_right_joint"].setVelocity(vR)
+    
+print("Exiting...")
