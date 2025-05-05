@@ -387,47 +387,68 @@ OBSTACLE   = 2
 image_data=None
 
 gripper_status="closed"
+odometry_state = "gps"
 print("=== Running Grocery Shopper...")
 # Main Loop
 while robot.step(timestep) != -1:
     
-    #Calculate pose with gps
-    pose_y = -gps.getValues()[1]
-    pose_x = -gps.getValues()[0]
+    if odometry_state == "gps":
+        # Use GPS for pose estimation
+        pose_y = -gps.getValues()[1]
+        pose_x = -gps.getValues()[0]
+        
+        n = compass.getValues()
+        rad = (math.atan2(n[0], n[1]))
+        pose_theta = rad
+    else:
+        # Use calculated odometry for pose estimation
+        vL_mps = (vL / (MAX_SPEED / 4)) * (MAX_SPEED / 4)
+        vR_mps = (vR / (MAX_SPEED / 4)) * (MAX_SPEED / 4)
+        d = (vL_mps + vR_mps) / 2.0 * timestep/1000 
+        d_theta = ((vR_mps - vL_mps) / AXLE_LENGTH ) * timestep/1000 
+        pose_x += d * math.cos(pose_theta)
+        pose_y += d * math.sin(pose_theta)
+        pose_theta += d_theta
 
-    n = compass.getValues()
-    rad = (math.atan2(n[0], n[1]))
-    pose_theta = rad
     print("Pose_x: ", pose_x, "Pose_y: ", pose_y, "Pose_theta: ", pose_theta)
-    
-    #Get lidar sensor readings
+    # get lidar sensor reading
     lidar_sensor_readings = lidar.getRangeImage()
     lidar_sensor_readings = lidar_sensor_readings[83:len(lidar_sensor_readings)-83]
-    
-    # Calculate robot position in the map
+    # calculate robot's position in map
     robot_gx = int((pose_x + x_dim/2) * scale_x)
     robot_gy = int((y_dim/2 + pose_y) * scale_y)
 
+
+    #----------------Vision------------
+
+    # captured image from robot's camera
     image_data = camera.getImage()
-    dark_yellow = np.array([25, 100, 100])
+    # color range
+    dark_yellow = np.array([20, 100, 100])
     light_yellow = np.array([30, 255, 255])
     # Webots images are 4-channel (BGRA), convert to 3-channel BGR for OpenCV
     if image_data:
         img = np.frombuffer(image_data, np.uint8).reshape(
             (camera.getHeight(), camera.getWidth(), 4)
         )
+        # convert BGRA to BGR
         img_bgr = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        # convert BGR to hsv for better looking
         img_hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+        # color filtering and masking
         mask = cv2.inRange(img_hsv, dark_yellow, light_yellow)
         res = cv2.bitwise_and(img_bgr, img_bgr, mask=mask)
+        # detect contours
         contours, _ = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         for contour in contours:
+            # for any area > 10 pixels and in the color range, recognize as a yellow object
             if cv2.contourArea(contour) > 10:
                 x, y, w, h = cv2.boundingRect(contour)
+                # put a rectangle and text around the yellow object
                 cv2.rectangle(img_bgr, (x, y), (x+w, y+h), (0, 255, 255), 2)
                 cv2.putText(img_bgr, 'Yellow Object', (x, y-10), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-        
+        # window for yellow object detection
         cv2.imshow('Yellow Object Detection', img_bgr)
         yellow_objects = [c for c in contours if cv2.contourArea(c) > 10]
         if yellow_objects:
@@ -1135,35 +1156,35 @@ while robot.step(timestep) != -1:
             vR =  0.2 * MAX_SPEED
 
 
-    if state == "vision":
-        vL = 0
-        vR = 0
-        image_data = camera.getImage()
-        dark_yellow = np.array([20, 100, 100])
-        light_yellow = np.array([30, 255, 255])
-    # Webots images are 4-channel (BGRA), convert to 3-channel BGR for OpenCV
-    if image_data:
-        img = np.frombuffer(image_data, np.uint8).reshape(
-            (camera.getHeight(), camera.getWidth(), 4)
-        )
-        img_bgr = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
-        img_hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(img_hsv, dark_yellow, light_yellow)
-        res = cv2.bitwise_and(img_bgr, img_bgr, mask=mask)
-        contours, _ = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        for contour in contours:
-            if cv2.contourArea(contour) > 10:
-                x, y, w, h = cv2.boundingRect(contour)
-                cv2.rectangle(img_bgr, (x, y), (x+w, y+h), (0, 255, 255), 2)
-                cv2.putText(img_bgr, 'Yellow Object', (x, y-10), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+    # if state == "vision":
+    #     vL = 0
+    #     vR = 0
+    #     image_data = camera.getImage()
+    #     dark_yellow = np.array([20, 100, 100])
+    #     light_yellow = np.array([30, 255, 255])
+    # # Webots images are 4-channel (BGRA), convert to 3-channel BGR for OpenCV
+    # if image_data:
+    #     img = np.frombuffer(image_data, np.uint8).reshape(
+    #         (camera.getHeight(), camera.getWidth(), 4)
+    #     )
+    #     img_bgr = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+    #     img_hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+    #     mask = cv2.inRange(img_hsv, dark_yellow, light_yellow)
+    #     res = cv2.bitwise_and(img_bgr, img_bgr, mask=mask)
+    #     contours, _ = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    #     for contour in contours:
+    #         if cv2.contourArea(contour) > 10:
+    #             x, y, w, h = cv2.boundingRect(contour)
+    #             cv2.rectangle(img_bgr, (x, y), (x+w, y+h), (0, 255, 255), 2)
+    #             cv2.putText(img_bgr, 'Yellow Object', (x, y-10), 
+    #                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
         
-        cv2.imshow('Yellow Object Detection', img_bgr)
-        yellow_objects = [c for c in contours if cv2.contourArea(c) > 10]
-        if yellow_objects:
-            print(f"Detected {len(yellow_objects)} yellow object(s)")
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+    #     cv2.imshow('Yellow Object Detection', img_bgr)
+    #     yellow_objects = [c for c in contours if cv2.contourArea(c) > 10]
+    #     if yellow_objects:
+    #         print(f"Detected {len(yellow_objects)} yellow object(s)")
+    #     if cv2.waitKey(1) & 0xFF == ord('q'):
+    #         break
 
     print("vL:", vL, "vR: ", vR)
     robot_parts["wheel_left_joint"].setVelocity(vL)
